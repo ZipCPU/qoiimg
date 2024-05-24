@@ -39,3 +39,4 @@ vivado*.str
 vivado*.debug
 xtim-*.txt
 /20*-build.v
+/refs/

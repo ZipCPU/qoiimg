@@ -1,8 +1,8 @@
 ////////////////////////////////////////////////////////////////////////////////
 //
-// Filename:	rtl/qoi_skid.v
+// Filename: 	qoi_skid.v
 // {{{
-// Project:	Quite OK image compression (QOI)
+// Project:	SDIO SD-Card controller
 //
 // Purpose:	A basic SKID buffer.
 // {{{
@@ -57,7 +57,7 @@
 //
 ////////////////////////////////////////////////////////////////////////////////
 // }}}
-// Copyright (C) 2024, Gisselquist Technology, LLC
+// Copyright (C) 2018-2024, Gisselquist Technology, LLC
 // {{{
 // This program is free software (firmware): you can redistribute it and/or
 // modify it under the terms of the GNU General Public License as published
@@ -80,9 +80,11 @@
 //
 ////////////////////////////////////////////////////////////////////////////////
 //
+//
 `default_nettype none
+`timescale 1ns/1ps
 // }}}
-module skidbuffer #(
+module qoi_skid #(
 		// {{{
 		parameter	[0:0]	OPT_LOWPOWER = 0,
 		parameter	[0:0]	OPT_OUTREG = 1,
@@ -229,12 +231,10 @@ module skidbuffer #(
 
 	// Keep Verilator happy
 	// {{{
-	// verilator coverage_off
 	// Verilator lint_off UNUSED
 	wire	unused;
 	assign	unused = &{ 1'b0, w_data };
 	// Verilator lint_on  UNUSED
-	// verilator coverage_on
 	// }}}
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////

@@ -4,7 +4,25 @@
 // {{{
 // Project:	Quite OK image compression (QOI)
 //
-// Purpose:
+// Purpose:	This encoder turns image data into compressed image data.  It
+//		doesn't handle header or trailer insertions.  As such, it
+//	requires an external wrapper (somewhere) to guarantee proper formatting.
+//
+//	This implementation does not handle ALPHA.
+//
+//	The input is an AXI video stream, save two signals:
+//	HLAST: true on the last pixel of every line.
+//	VLAST: true on either the last line, or the last pixel of the last line.
+//	  Hence HLAST && VLAST is the (reliable/guaranteed) signal for the last
+//	  pixel in any frame.
+//
+//	The output is an AXI byte stream containing between 1-4 bytes per beat,
+//	with the first byte always packed into the MSB (i.e. big endian), and
+//	other bytes packed immediately following.
+//	BYTES: Contains the number of valid bytes in each beat, with 2'b0
+//	  representing a full 4-byte word.
+//	LAST: True on the last DATA beat of any image.
+//	Line boundaries are not preserved in this implementation.
 //
 // Creator:	Dan Gisselquist, Ph.D.
 //		Gisselquist Technology, LLC
@@ -217,7 +235,7 @@ module	qoi_compress (
 		tbl_valid <= 0;
 	else if (s3_valid && s3_ready && s2_hlast)
 		tbl_valid <= 0;
-	else
+	else if (s2_valid && s2_ready)
 		tbl_valid[s2_tbl_index] <= 1'b1;
 
 	always @(posedge i_clk)
