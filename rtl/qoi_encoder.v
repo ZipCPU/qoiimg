@@ -239,8 +239,8 @@ module	qoi_encoder #(
 	assign	e_valid = syncd && s_valid;
 	assign	s_ready = !syncd || e_ready;
 
-	qoi_encoder
-	u_encoder (
+	qoi_compress
+	u_compress (
 		.i_clk(i_clk), .i_reset(i_reset),
 		//
 		.s_vid_valid(e_valid), .s_vid_ready(e_ready),
