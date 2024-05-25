@@ -3,12 +3,16 @@
 The full format description can be found
 [here](https://qoiformat.org/qoi-specification.pdf).
 
-This repository consists of both a [compression](rtl/qoi_compress.v) and
-(eventually) a decompression implementation.
+This repository currently consists of a QOI [encoder](rtl/qoi_encoder.v)
+implementation.  This includes the file header,
+[image compression](rtl/qoi_compress.v), and trailer.  The result of this
+encoder is an AXI stream of video image "packets".  A
+Wishbone [recorder](rtl/qoi_recorder.v) can be used to record these packets to
+memory.  The [recorder](rtl/qoi_recorder.v) requires components from the
+[ZipCPU](https://github.com/ZipCPU)'s DMA at present.
 
-The [encoder](rtl/qoi_encoder.v) implementations file header, compression,
-and trailer.  As a result, the incoming video stream is encoded into QOI
-image "packets".
+A separate [decoder](rtl/qoi_decoder.v) is also planned to decode
+and decompress images, but it remains in the early stages of its development.
 
 ## Back story
 
@@ -24,22 +28,22 @@ is already well used--I don't want to take up any more of it, or risk any
 more of the design failing due to memory latencies.  Therefore, the memory
 compression needs to be quick.
 
-Many of these SONAR images consist of plots or other charts on a black
-background.  QOI's run-length compression should make quick work of this
-black background, turning it into a proper run length compression.  Likewise,
-the images often contain plots of white lines on a black background.  Again,
-the image compression might note the white pixel initially, but then ever after
-the white pixel(s) will be compressed to a single byte of white, followed by
-a single byte of black, followed by a run of black.  Again, this should
-compress quite well, reducing the bandwidth to memory required by the
-algorithm.
+Many of these SONAR images consist of [plots or other
+charts](https://github.com/ZipCPU/vgasim/tree/dev/rtl/gfx) on a black
+background.  QOI's run-length compression should make quick work of this black
+background.  Likewise, the images often contain only a small number of colors,
+such as the white lines.  Again, the image compression might note the white
+pixel initially, but then ever after the white pixel(s) will be compressed to
+a single byte of white, followed by a single byte of black, followed by a run
+of black.  Again, this should compress quite well, reducing the bandwidth to
+memory required by the algorithm.
 
 ## Implementation notes
 
-Goal: real-time compression and decompression.  I think I've figured out how
-to map the compression component to hardware.  The decompression algorithm
-isn't there yet.  (i.e., it has known bugs) Neither algorithm has been
-properly verified (yet).
+**Project Goal**: real-time compression and decompression.  I think I've
+figured out how to map the compression component to hardware.  The
+decompression algorithm isn't there yet.  (i.e., it has known bugs) Neither
+algorithm has been properly verified (yet).
 
 The trick in this implementation is getting the compression table, a block RAM
 memory, to the point where it can be accessed in one cycle.  This means that
