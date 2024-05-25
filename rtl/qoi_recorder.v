@@ -114,6 +114,7 @@ module	qoi_recorder #(
 	wire				fifo_valid, fifo_ready, fifo_last;
 	wire	[DW-1:0]		fifo_data;
 	wire	[$clog2(DW/8):0]	fifo_bytes;
+	reg				fifo_flush;
 
 	wire	afifo_full, afifo_empty;
 	wire	fifo_full,  fifo_empty, fifo_read;
@@ -271,7 +272,7 @@ module	qoi_recorder #(
 
 	assign	pxm_ready  = !fifo_full;
 	assign	fifo_valid = !fifo_empty;
-	assign	fifo_read  = fifo_ready || !dma_active;
+	assign	fifo_read  = (fifo_ready || !dma_active) && fifo_flush;
 	// }}}
 	////////////////////////////////////////////////////////////////////////
 	//
@@ -299,6 +300,16 @@ module	qoi_recorder #(
 	end else if (fifo_read && !fifo_empty && fifo_last && !dma_request)
 		dma_active <= 1'b0;
 
+	always @(posedge i_clk)
+	if (i_reset)
+		fifo_flush <= 1'b0;
+	else if (fifo_read && fifo_empty)
+		fifo_flush <= 1'b0;
+	else if (pxm_valid && pxm_last)
+		fifo_flush <= 1'b1;
+	else if (fifo_fill[LGFIFO:LGFIFO-1] != 2'b00)
+		fifo_flush <= 1'b1;
+
 	// }}}
 	////////////////////////////////////////////////////////////////////////
 	//
@@ -317,7 +328,8 @@ module	qoi_recorder #(
 		// Always increment.  Size is always the full bus size.
 		.i_inc(1'b1), .i_size(2'b00), .i_addr(base_addr),
 		//
-		.S_VALID(fifo_valid && dma_active), .S_READY(fifo_ready),
+		.S_VALID(fifo_valid && dma_active && fifo_flush),
+				.S_READY(fifo_ready),
 		.S_DATA(fifo_data), .S_BYTES(fifo_bytes), .S_LAST(fifo_last),
 		//
 		.o_wr_cyc(o_dma_cyc), .o_wr_stb(o_dma_stb), .o_wr_we(o_dma_we),
