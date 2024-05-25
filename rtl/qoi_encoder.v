@@ -290,7 +290,7 @@ module	qoi_encoder #(
 		end
 	FRM_START: begin
 		frm_state <= FRM_HDRMAGIC;
-		frm_valid <= 1'b1;
+		frm_valid <= 1'b0;
 		frm_data  <= "qoif";
 		frm_bytes <= 2'b00;
 		frm_last  <= 1'b0;
@@ -382,20 +382,20 @@ module	qoi_encoder #(
 		if (frm_valid && frm_ready)
 		begin
 			if (frm_bytes == 0)
-				new_fill = new_fill + 2;
+				new_fill = new_fill + 4;
 			else
 				new_fill = new_fill + frm_bytes;
 		end
 
 		fl_last = sr_last;
 		if (frm_valid && frm_ready && !sr_last
-					&& (sr_fill + new_fill <= DB))
+					&& (new_fill <= DB))
 			fl_last = frm_last;
 
 		flush = sr_last || frm_last;
 		if (sr_fill >= DW/8)
 			flush = 1'b1;
-		if (frm_valid && frm_ready && (sr_fill + new_fill >= DB))
+		if (frm_valid && frm_ready && (new_fill >= DB))
 			flush = 1'b1;
 
 		new_data = sreg| ({{(DW-32){1'b0}}, frm_data}
@@ -412,7 +412,7 @@ module	qoi_encoder #(
 	begin
 		o_qvalid <= 1'b1;
 		// Verilator lint_off WIDTH
-		sr_fill <= sr_fill + new_fill - DB;
+		sr_fill <= new_fill - DB;
 		// Verilator lint_on  WIDTH
 		if (sr_last)
 			sr_fill <= (frm_valid) ? new_fill : 0;
@@ -422,7 +422,7 @@ module	qoi_encoder #(
 		if (i_qready)
 			o_qvalid <= 1'b0;
 		if (frm_valid && frm_ready)
-			sr_fill <= sr_fill + new_fill;
+			sr_fill <= new_fill;
 	end
 
 	always @(posedge i_clk)
@@ -462,7 +462,7 @@ module	qoi_encoder #(
 	if (i_reset || !syncd)
 		sr_last <= 1'b0;
 	else if ((!o_qvalid || i_qready) && flush)
-		sr_last <= 1'b0;
+		sr_last <= frm_valid && frm_ready && frm_last && !fl_last;
 	else if (frm_valid && frm_ready)
 		sr_last <= frm_last;
 

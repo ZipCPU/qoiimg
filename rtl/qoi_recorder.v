@@ -1,6 +1,6 @@
 ////////////////////////////////////////////////////////////////////////////////
 //
-// Filename:	rtl/wbcamera.v
+// Filename:	rtl/qoi_recorder.v
 // {{{
 // Project:	Quite OK image compression (QOI)
 //
@@ -47,7 +47,7 @@
 ////////////////////////////////////////////////////////////////////////////////
 //
 // }}}
-module	wbcamera #(
+module	qoi_recorder #(
 		// {{{
 		parameter [0:0]	OPT_COMPRESS = 1'b1,
 		parameter [0:0]	OPT_TUSER_IS_SOF = 1'b0,
@@ -59,7 +59,7 @@ module	wbcamera #(
 	) (
 		// {{{
 		input	wire		i_clk, i_reset,
-		input	wire		i_pix_clk, i_pix_reset,
+		input	wire		i_pix_clk,
 		// Control inputs
 		// {{{
 		input	wire		i_wb_cyc, i_wb_stb, i_wb_we,
@@ -93,8 +93,9 @@ module	wbcamera #(
 
 	// Local declarations
 	// {{{
-	localparam	ADDR_LSB = 2,
-			ADDR_MSB = 1;
+	localparam	ADDR_CTRL= 0,
+			ADDR_MSW = 1,
+			ADDR_LSW = 2;
 
 	wire	soft_dma_reset;
 
@@ -119,10 +120,19 @@ module	wbcamera #(
 
 	reg	[63:0]			wide_dma_address;
 	reg	[15:0]			nframes;
-	reg	[AW+$clog2(DW/8)-1:0]	dma_address, base_addr;
+	reg	[AW+$clog2(DW/8)-1:0]	dma_address;
+	wire	[AW+$clog2(DW/8)-1:0]	base_addr;
 
 	reg	dma_request, vid_sync, dma_active;
 	wire	dma_busy, dma_err;
+
+	reg	pix_reset, pix_reset_pipe;
+
+	always @(posedge i_pix_clk)
+	if (i_reset)
+		{ pix_reset, pix_reset_pipe } <= -1;
+	else
+		{ pix_reset, pix_reset_pipe } <= { pix_reset_pipe, 1'b0 };
 
 	// }}}
 	////////////////////////////////////////////////////////////////////////
@@ -144,7 +154,7 @@ module	wbcamera #(
 		) u_compress_video (
 			// {{{
 			.i_clk(i_pix_clk),
-			.i_reset(i_pix_reset),
+			.i_reset(pix_reset),
 			//
 			.s_valid(s_vid_valid),
 			.s_ready(s_vid_ready),
@@ -189,7 +199,7 @@ module	wbcamera #(
 		.BUS_WIDTH(DW),
 		.OPT_LITTLE_ENDIAN(1'b0)
 	) u_rxgears (
-		.i_clk(i_pix_clk), .i_reset(i_pix_reset),
+		.i_clk(i_pix_clk), .i_reset(pix_reset),
 		.i_soft_reset(soft_dma_reset),
 		.S_VALID(sel_valid),
 		.S_READY(sel_ready),
@@ -221,7 +231,7 @@ module	wbcamera #(
 	afifo #(
 		.LGFIFO(3), .WIDTH(2+$clog2(DW/8)+DW)
 	) u_afifo (
-		.i_wclk(i_pix_clk), .i_wr_reset_n(!i_pix_reset),
+		.i_wclk(i_pix_clk), .i_wr_reset_n(!pix_reset),
 		.i_wr(pix_valid),
 			.i_wr_data({ pix_last, pix_bytes, pix_data }),
 			.o_wr_full(afifo_full),
@@ -355,7 +365,7 @@ module	wbcamera #(
 	always @(*)
 	begin
 		wide_dma_address = { {(64-AW-$clog2(DW/8)){1'b0}}, dma_address };
-		if (i_wb_stb && !o_wb_stall && i_wb_we && i_wb_addr == ADDR_LSB)
+		if (i_wb_stb && !o_wb_stall && i_wb_we && i_wb_addr == ADDR_LSW)
 		begin
 			if (i_wb_sel[0])
 				wide_dma_address[ 7: 0] = i_wb_data[ 7: 0];
@@ -367,7 +377,7 @@ module	wbcamera #(
 				wide_dma_address[31:24] = i_wb_data[31:24];
 		end
 
-		if (i_wb_stb && !o_wb_stall && i_wb_we && i_wb_addr == ADDR_MSB)
+		if (i_wb_stb && !o_wb_stall && i_wb_we && i_wb_addr == ADDR_MSW)
 		begin
 			if (i_wb_sel[0])
 				wide_dma_address[39:32] = i_wb_data[ 7: 0];
@@ -408,9 +418,11 @@ module	wbcamera #(
 	if (i_wb_stb)
 	begin
 		case(i_wb_addr)
-		0: o_wb_data <= { 16'h0, nframes };
-		ADDR_LSB: o_wb_data <= wide_dma_address[31:0];
-		ADDR_MSB: o_wb_data <= wide_dma_address[63:32];
+		ADDR_CTRL: o_wb_data
+			<= { dma_request, dma_busy, dma_err, dma_active,
+				vid_sync, 11'h0, nframes };
+		ADDR_LSW: o_wb_data <= wide_dma_address[31:0];
+		ADDR_MSW: o_wb_data <= wide_dma_address[63:32];
 		default: o_wb_data <= 0;
 		endcase
 	end

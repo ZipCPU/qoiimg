@@ -139,7 +139,7 @@ module	qoi_compress (
 	always @(posedge i_clk)
 	if (i_reset)
 		s1_valid <= 0;
-	else if (!s1_ready || s1_valid)
+	else if (!s1_valid || s1_ready)
 		s1_valid <= skd_valid;
 
 	always @(posedge i_clk)
@@ -167,7 +167,7 @@ module	qoi_compress (
 	always @(posedge i_clk)
 	if (i_reset)
 		s2_valid <= 0;
-	else if (!s2_ready || s2_valid)
+	else if (!s2_valid || s2_ready)
 		s2_valid <= s1_valid;
 
 	always @(posedge i_clk)
@@ -190,11 +190,19 @@ module	qoi_compress (
 	//
 	//
 
+	reg	s3_known;
+
 	always @(posedge i_clk)
 	if (i_reset)
 		s3_valid <= 0;
-	else if (!s3_ready || s3_valid)
+	else if (!s3_valid || s3_ready)
 		s3_valid <= s2_valid;
+
+	always @(posedge i_clk)
+	if (i_reset)
+		s3_known <= 0;
+	else if (s3_valid && s3_ready)
+		s3_known <= !s3_hlast;
 
 	always @(posedge i_clk)
 	if (i_reset)
@@ -277,8 +285,8 @@ module	qoi_compress (
 	end
 	// }}}
 
-	assign	s3_continue = (s3_pixel == s2_pixel)&&(s3_repeats < 6'd61)
-				&& !s2_hlast;
+	assign	s3_continue = s3_known && (s3_pixel == s2_pixel)
+				&&(s3_repeats < 6'd61) && !s3_hlast;
 	assign	s3_ready = !s4_valid || s4_ready;
 	// }}}
 	////////////////////////////////////////////////////////////////////////
@@ -292,8 +300,8 @@ module	qoi_compress (
 	always @(posedge i_clk)
 	if (i_reset)
 		s4_valid <= 0;
-	else if (!s4_ready || s4_valid)
-		s4_valid <= s3_valid;
+	else if (!s4_valid || s4_ready)
+		s4_valid <= s3_valid && (!s3_continue);
 
 	always @(posedge i_clk)
 	if (s3_valid && s3_ready)
