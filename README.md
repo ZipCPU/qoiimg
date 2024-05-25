@@ -58,8 +58,10 @@ remain.
 
 ## Status
 
-This IP is currently a work-in-progress.  It has not been simulated, nor has
-any part of it been formally verified.  It hasn't seen hardware either.
+This IP is currently a work-in-progress.  The encoder/recorder currently passes
+a simulation test as part of a larger project.  However, it doesn't yet have
+its own regression suite--either simulation or formal verification based.
+It hasn't seen hardware either.
 
 One step at a time.
 
