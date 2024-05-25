@@ -190,19 +190,11 @@ module	qoi_compress (
 	//
 	//
 
-	reg	s3_known;
-
 	always @(posedge i_clk)
 	if (i_reset)
 		s3_valid <= 0;
 	else if (!s3_valid || s3_ready)
 		s3_valid <= s2_valid;
-
-	always @(posedge i_clk)
-	if (i_reset)
-		s3_known <= 0;
-	else if (s3_valid && s3_ready)
-		s3_known <= !s3_hlast;
 
 	always @(posedge i_clk)
 	if (i_reset)
@@ -285,8 +277,8 @@ module	qoi_compress (
 	end
 	// }}}
 
-	assign	s3_continue = s3_known && (s3_pixel == s2_pixel)
-				&&(s3_repeats < 6'd61) && !s3_hlast;
+	assign	s3_continue = (s3_pixel == s2_pixel) &&(s3_repeats < 6'd61)
+					&& !s3_hlast;
 	assign	s3_ready = !s4_valid || s4_ready;
 	// }}}
 	////////////////////////////////////////////////////////////////////////
