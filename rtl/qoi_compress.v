@@ -52,6 +52,7 @@
 //
 ////////////////////////////////////////////////////////////////////////////////
 //
+`default_nettype none
 // }}}
 module	qoi_compress (
 		input	wire	i_clk, i_reset,
@@ -89,7 +90,7 @@ module	qoi_compress (
 	wire		s2_ready;
 
 	reg		s3_valid, s3_hlast, s3_vlast, s3_tbl_valid, s3_rptvalid;
-	reg	[23:0]	s3_pixel, s3_tbl_pixel, s3_last;
+	reg	[23:0]	s3_pixel, s3_tbl_pixel;
 	reg	[5:0]	s3_repeats, s3_tblidx;
 	reg	[7:0]	s3_rdiff, s3_gdiff, s3_bdiff, s3_rgdiff, s3_bgdiff;
 	wire		s3_continue, s3_ready;
@@ -173,7 +174,7 @@ module	qoi_compress (
 	always @(posedge i_clk)
 	if (s1_valid && s1_ready)
 	begin
-		s2_tbl_index <= s1_rhash + s1_ghash + s1_bhash;
+		s2_tbl_index <= s1_rhash + s1_ghash + s1_bhash + 6'h35;
 
 		s2_hlast <= s1_hlast;
 		s2_vlast <= s1_vlast;
@@ -220,11 +221,11 @@ module	qoi_compress (
 	// Table lookup
 	// {{{
 	always @(posedge i_clk)
-	if (s3_valid && s3_ready)
+	if (s2_valid && s2_ready)
 		s3_tbl_valid <= tbl_valid[s2_tbl_index];
 
 	always @(posedge i_clk)
-	if (s3_valid && s3_ready)
+	if (s2_valid && s2_ready)
 		s3_tbl_pixel <= tbl_pixel[s2_tbl_index];
 	// }}}
 
@@ -233,28 +234,14 @@ module	qoi_compress (
 	always @(posedge i_clk)
 	if (i_reset)
 		tbl_valid <= 0;
-	else if (s3_valid && s3_ready && s2_hlast)
+	else if (s3_valid && s3_ready && s2_hlast && s2_vlast)
 		tbl_valid <= 0;
 	else if (s2_valid && s2_ready)
 		tbl_valid[s2_tbl_index] <= 1'b1;
 
 	always @(posedge i_clk)
-	if (s3_valid && s3_ready)
+	if (s2_valid && s2_ready)
 		tbl_pixel[s2_tbl_index] <= s2_pixel;
-	// }}}
-
-	// s3_last -- keep track of the last pixel
-	// {{{
-	always @(posedge i_clk)
-	if (i_reset)
-		s3_last <= 0;
-	else if (s3_valid && s3_ready)
-	begin
-		if (s2_hlast)
-			s3_last <= 0;
-		else
-			s3_last <= s3_pixel;
-	end
 	// }}}
 
 	// s3_(everything else): tblidx, xdiff, xgdiff, xlast, && pixel
@@ -264,12 +251,12 @@ module	qoi_compress (
 	begin
 		s3_tblidx <= s2_tbl_index;
 
-		s3_rdiff <= s3_pixel[23:16] - s3_last[23:16];
-		s3_gdiff <= s3_pixel[15: 8] - s3_last[15: 8];
-		s3_bdiff <= s3_pixel[ 7: 0] - s3_last[ 7: 0];
+		s3_rdiff <= s2_pixel[23:16] - s3_pixel[23:16];
+		s3_gdiff <= s2_pixel[15: 8] - s3_pixel[15: 8];
+		s3_bdiff <= s2_pixel[ 7: 0] - s3_pixel[ 7: 0];
 
-		s3_rgdiff <= s3_pixel[23:16] - s3_last[15: 8];
-		s3_bgdiff <= s3_pixel[ 7: 0] - s3_last[15: 8];
+		s3_rgdiff <= s2_pixel[23:16] - s3_pixel[15: 8];
+		s3_bgdiff <= s2_pixel[ 7: 0] - s3_pixel[15: 8];
 
 		s3_hlast <= s2_hlast;
 		s3_vlast <= s2_vlast;
@@ -293,7 +280,7 @@ module	qoi_compress (
 	if (i_reset)
 		s4_valid <= 0;
 	else if (!s4_valid || s4_ready)
-		s4_valid <= s3_valid && (!s3_continue);
+		s4_valid <= s3_valid && (!s3_rptvalid || !s3_continue);
 
 	always @(posedge i_clk)
 	if (s3_valid && s3_ready)
@@ -345,7 +332,7 @@ module	qoi_compress (
 	begin
 		if (s4_rptset)
 		begin
-			m_data <= { 2'b01, s4_repeats, 24'h0 };
+			m_data <= { 2'b11, s4_repeats, 24'h0 };
 			m_bytes <= 2'd1;
 		end else if (s4_tblset)
 		begin
@@ -355,12 +342,18 @@ module	qoi_compress (
 		begin
 			m_data <= { 2'b01, s4_rdiff[1:0], s4_gdiff[1:0],
 					s4_bdiff[1:0], 24'h0 };
+			m_data[29:28] <= s4_rdiff[1:0] + 2'b10;
+			m_data[27:26] <= s4_gdiff[1:0] + 2'b10;
+			m_data[25:24] <= s4_bdiff[1:0] + 2'b10;
 			m_bytes <= 2'd1;
 		end else if (s4_bigdf)
 		begin
 			m_data <= { 2'b10, s4_gdiff[5:0],
 				s4_rgdiff[3:0],
 				s4_bgdiff[3:0], 16'h0 };
+			m_data[29:24] <= s4_gdiff[5:0] + 6'h20;
+			m_data[23:20] <= s4_rgdiff[3:0] + 4'h8;
+			m_data[19:16] <= s4_bgdiff[3:0] + 4'h8;
 			m_bytes <= 2'd2;
 		end else begin
 			m_data <= { 8'hfe, s4_pixel };

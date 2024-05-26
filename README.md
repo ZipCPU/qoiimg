@@ -62,10 +62,12 @@ remain.
 
 ## Status
 
-This IP is currently a work-in-progress.  The encoder/recorder currently passes
-a simulation test as part of a larger project.  However, it doesn't yet have
-its own regression suite--either simulation or formal verification based.
-It hasn't seen hardware either.
+This IP is currently a work-in-progress.  I think I can say the encoder is now
+hardware proven, since I have now used it to capture several black and white
+hardware images, but I'd really like to see a successful test with more
+color involved.  The decoder is known to not be ready yet.  Worse, the design
+doesn't (yet) have a regression suite--whether it be simulation or formal
+verification based.
 
 One step at a time.
 
