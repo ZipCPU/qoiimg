@@ -206,7 +206,7 @@ module	qoi_compress (
 	begin
 		if (!s3_continue)
 		begin
-			s3_rptvalid <= 0;
+			s3_rptvalid <= s3_rptvalid && (s3_pixel == s2_pixel);
 			s3_repeats <= 0;
 		end else if (!s3_rptvalid)
 		begin
@@ -285,7 +285,8 @@ module	qoi_compress (
 	always @(posedge i_clk)
 	if (s3_valid && s3_ready)
 	begin
-		s4_tblset <= (s3_pixel == s3_tbl_pixel) && s3_tbl_valid;
+		s4_tblset <= (s3_pixel == s3_tbl_pixel) && s3_tbl_valid
+						&& (s3_tblidx != s4_tblidx);
 		s4_tblidx <= s3_tblidx;
 
 		s4_rptset  <= s3_rptvalid && !s3_continue;

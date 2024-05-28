@@ -273,7 +273,7 @@ module	qoi_recorder #(
 
 	assign	pxm_ready  = !fifo_full;
 	assign	fifo_valid = !fifo_empty;
-	assign	fifo_read  = (fifo_ready || !dma_active) && fifo_flush;
+	assign	fifo_read  = (fifo_ready && fifo_flush) || !dma_active;
 	// }}}
 	////////////////////////////////////////////////////////////////////////
 	//
