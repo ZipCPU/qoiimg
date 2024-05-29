@@ -87,6 +87,7 @@ module	qoi_compress (
 	reg		s2_valid, s2_hlast, s2_vlast;
 	reg	[5:0]	s2_tbl_index;
 	reg	[23:0]	s2_pixel;
+	reg	[7:0]	s2_gdiff;
 	wire		s2_ready;
 
 	reg		s3_valid, s3_hlast, s3_vlast, s3_tbl_valid, s3_rptvalid;
@@ -172,13 +173,19 @@ module	qoi_compress (
 		s2_valid <= s1_valid;
 
 	always @(posedge i_clk)
+	if (i_reset)
+		s2_pixel <= 0;
+	else if (s1_valid && s1_ready)
+		s2_pixel <= s1_pixel;
+
+	always @(posedge i_clk)
 	if (s1_valid && s1_ready)
 	begin
 		s2_tbl_index <= s1_rhash + s1_ghash + s1_bhash + 6'h35;
 
 		s2_hlast <= s1_hlast;
 		s2_vlast <= s1_vlast;
-		s2_pixel <= s1_pixel;
+		s2_gdiff <= s1_pixel[15: 8] - s2_pixel[15: 8];
 	end
 
 	assign	s2_ready = !s3_valid || s3_ready;
@@ -247,20 +254,26 @@ module	qoi_compress (
 	// s3_(everything else): tblidx, xdiff, xgdiff, xlast, && pixel
 	// {{{
 	always @(posedge i_clk)
+	if (i_reset)
+		s3_pixel <= 0;
+	else if (s2_valid && s2_ready)
+		s3_pixel <= s2_pixel;
+
+	always @(posedge i_clk)
 	if (s2_valid && s2_ready)
 	begin
 		s3_tblidx <= s2_tbl_index;
 
 		s3_rdiff <= s2_pixel[23:16] - s3_pixel[23:16];
-		s3_gdiff <= s2_pixel[15: 8] - s3_pixel[15: 8];
+		// s3_gdiff <= s2_pixel[15: 8] - s3_pixel[15: 8];
+		s3_gdiff <= s2_gdiff;
 		s3_bdiff <= s2_pixel[ 7: 0] - s3_pixel[ 7: 0];
 
-		s3_rgdiff <= s2_pixel[23:16] - s3_pixel[15: 8];
-		s3_bgdiff <= s2_pixel[ 7: 0] - s3_pixel[15: 8];
+		s3_rgdiff <= (s2_pixel[23:16] - s3_pixel[23:16]) - s2_gdiff;
+		s3_bgdiff <= (s2_pixel[ 7: 0] - s3_pixel[ 7: 0]) - s2_gdiff;
 
 		s3_hlast <= s2_hlast;
 		s3_vlast <= s2_vlast;
-		s3_pixel <= s2_pixel;
 	end
 	// }}}
 
