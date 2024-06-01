@@ -5,7 +5,7 @@
 // Project:	Quite OK image compression (QOI) Verilog implementation
 //
 // Purpose:	Top level QOI image processing file.  This file is primarily
-//		a wrapper around qoi_encoder.  It's purpose is threefold.
+//		a wrapper around qoi_compress.  It's purpose is threefold.
 //	First, it converts from Xilinx's video format (TUSER=SOF, TLAST=HLAST)
 //	to my video format (TUSER=HLAST, TLAST=VLAST).  This process also
 //	counts the image size.  Second, it adds the QOI required header.
@@ -46,6 +46,7 @@
 module	qoi_encoder #(
 		// {{{
 		parameter	[0:0]	OPT_TUSER_IS_SOF = 1'b0,
+		parameter	[15:0]	LGFRAME=16,
 		parameter		DW = 64,
 		localparam		DB = DW/8,
 		localparam		LGDB = $clog2(DB)
@@ -54,10 +55,10 @@ module	qoi_encoder #(
 		// {{{
 		input	wire		i_clk, i_reset,
 		//
-		input	wire		s_valid,
-		output	wire		s_ready,
-		input	wire	[23:0]	s_data,
-		input	wire		s_last, s_user,
+		input	wire			s_valid,
+		output	wire			s_ready,
+		input	wire	[23:0]		s_data,
+		input	wire			s_last, s_user,
 		//
 		output	reg			o_qvalid,
 		input	wire			i_qready,
@@ -79,11 +80,11 @@ module	qoi_encoder #(
 
 	wire		s_hlast;
 	reg	[1:0]	h_state;
-	reg	[15:0]	h_count, h_width;
+	reg	[LGFRAME-1:0]	h_count, h_width;
 
 	wire		syncd, s_vlast;
 	reg	[1:0]	v_state;
-	reg	[15:0]	v_count, v_height;
+	reg	[LGFRAME-1:0]	v_count, v_height;
 
 	wire		e_valid, e_ready;
 
@@ -239,6 +240,17 @@ module	qoi_encoder #(
 	assign	e_valid = syncd && s_valid;
 	assign	s_ready = !syncd || e_ready;
 
+`ifdef	FORMAL
+	(* anyseq *)	reg	f_ready, f_last, f_valid;
+	(* anyseq *)	reg	[31:0]	f_data;
+	(* anyseq *)	reg	[1:0]	f_bytes;
+
+	assign	e_ready   = f_ready;
+	assign	enc_valid = f_valid;
+	assign	enc_data  = f_data;
+	assign	enc_bytes = f_bytes;
+	assign	enc_last  = f_last;
+`else
 	qoi_compress
 	u_compress (
 		.i_clk(i_clk), .i_reset(i_reset),
@@ -251,6 +263,7 @@ module	qoi_encoder #(
 		.m_data( enc_data), .m_bytes(enc_bytes),
 		.m_last( enc_last)
 	);
+`endif
 
 	assign	enc_ready = (frm_state == FRM_DATA)&&(!frm_valid || frm_ready);
 
@@ -305,14 +318,14 @@ module	qoi_encoder #(
 	FRM_HDRWIDTH: begin
 		frm_state <= FRM_HDRHEIGHT;
 		frm_valid <= 1'b1;
-		frm_data  <= { 16'h0, h_width };
+		frm_data  <= { {(32-LGFRAME){1'b0}}, h_width };
 		frm_bytes <= 2'b00;
 		frm_last  <= 1'b0;
 		end
 	FRM_HDRHEIGHT: begin
 		frm_state <= FRM_HDRFORMAT;
 		frm_valid <= 1'b1;
-		frm_data  <= { 16'h0, v_height };
+		frm_data  <= { {(32-LGFRAME){1'b0}}, v_height };
 		frm_bytes <= 2'b00;
 		frm_last  <= 1'b0;
 		end
@@ -403,6 +416,8 @@ module	qoi_encoder #(
 		// Verilator lint_on  WIDTH
 	end
 
+	initial	o_qvalid = 0;
+	initial	sr_fill = 0;
 	always @(posedge i_clk)
 	if (i_reset)
 	begin
@@ -471,4 +486,103 @@ module	qoi_encoder #(
 		o_qlast <= fl_last;
 
 	// }}}
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+//
+// Formal properties
+// {{{
+////////////////////////////////////////////////////////////////////////////////
+`ifdef	FORMAL
+	reg	f_past_valid;
+	(* anyconst *) reg	[LGFRAME-1:0]	f_width, f_height;
+	reg	[LGFRAME-1:0]	fs_xpos, fs_ypos;
+	reg			f_known_height, fs_hlast, fs_vlast, fs_sof;
+
+	initial	f_past_valid = 1'b0;
+	always @(posedge i_clk)
+		f_past_valid <= 1'b1;
+
+	always @(*)
+	if (!f_past_valid)
+		assume(i_reset);
+	////////////////////////////////////////////////////////////////////////
+	//
+	// (Video) Stream properties
+	// {{{
+	always @(posedge i_clk)
+	if (!f_past_valid || $past(i_reset))
+		assume(!s_valid);
+	else if ($past(s_valid && !s_ready))
+	begin
+		assume(s_valid);
+		assume($stable(s_data));
+		assume($stable(s_last));
+		assume($stable(s_user));
+	end
+
+	always @(posedge i_clk)
+	if (!f_past_valid || $past(i_reset))
+		assume(!enc_valid);
+	else if ($past(enc_valid && !enc_ready))
+	begin
+		assume(enc_valid);
+		assume($stable(enc_data));
+		assume($stable(enc_bytes));
+		assume($stable(enc_last));
+	end
+
+	faxivideo #(
+		.LGDIM(LGFRAME),
+		.OPT_TUSER_IS_SOF(OPT_TUSER_IS_SOF)
+	) fvid (
+		// {{{
+		.i_clk(i_clk), .i_reset_n(!i_reset),
+		//
+		.S_VID_TVALID(s_valid),
+		.S_VID_TREADY(s_ready),
+		.S_VID_TDATA(s_data),
+		.S_VID_TLAST(s_last),
+		.S_VID_TUSER(s_user),
+		//
+		.i_width(f_width), .i_height(f_height),
+		.o_xpos(fs_xpos), .o_ypos(fs_ypos),
+		.f_known_height(f_known_height),
+		.o_hlast(fs_hlast), .o_vlast(fs_vlast), .o_sof(fs_sof)
+		// }}}
+	);
+
+	always @(*)
+	begin
+		assume(fs_xpos < f_width);
+		assume(fs_ypos < f_height);
+
+		if (OPT_TUSER_IS_SOF)
+		begin
+			assume(!s_valid || s_last == fs_hlast);
+			assume(!s_valid || s_user == fs_sof);
+		end else begin
+			assume(!s_valid || s_last == (fs_vlast && fs_hlast));
+			assume(!s_valid || s_user == fs_hlast);
+		end
+	end
+
+	always @(posedge i_clk)
+	if (!f_past_valid || $past(i_reset))
+		assert(!o_qvalid);
+	else if ($past(o_qvalid && !i_qready))
+	begin
+		assert(o_qvalid);
+		assert($stable(o_qdata));
+		assert($stable(o_qbytes));
+		assert($stable(o_qlast));
+	end
+
+	always @(posedge i_clk)
+	if (f_past_valid && !$past(i_reset) && o_qvalid)
+		assert(o_qlast || o_qbytes == 0);
+
+	// }}}
+`endif
+// }}}
 endmodule

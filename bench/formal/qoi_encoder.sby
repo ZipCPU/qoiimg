@@ -1,0 +1,26 @@
+[tasks]
+prf
+# prfsof	prf opt_sof
+# cvr
+
+[options]
+prf: mode prove
+depth 20
+# cvr: mode cover
+
+[engines]
+smtbmc
+
+[script]
+read -formal qoi_encoder.v
+read -formal faxivideo.v
+--pycode-begin--
+cmd = "hierarchy -top qoi_encoder"
+cmd+= " -chparam OPT_TUSER_IS_SOF %d" % (1 if "opt_sof" in tags else 0)
+output(cmd)
+--pycode-end--
+prep -top qoi_encoder
+
+[files]
+faxivideo.v
+../../rtl/qoi_encoder.v

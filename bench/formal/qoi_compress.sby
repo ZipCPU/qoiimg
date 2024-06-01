@@ -1,0 +1,26 @@
+[tasks]
+prf
+# cvr
+
+[options]
+prf: mode prove
+depth 4
+# cvr: mode cover
+
+[engines]
+smtbmc
+
+[script]
+read -formal qoi_compress.v
+read -formal qoi_skid.v
+read -formal faxivideo.v
+--pycode-begin--
+cmd = "hierarchy -top qoi_compress"
+output(cmd)
+--pycode-end--
+prep -top qoi_compress
+
+[files]
+faxivideo.v
+../../rtl/qoi_compress.v
+../../rtl/qoi_skid.v
