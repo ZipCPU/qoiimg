@@ -71,7 +71,7 @@ module	qoi_decoder #(
 		output	wire			m_valid,
 		input	wire			m_ready,
 		output	wire	[23:0]		m_data,
-		output	wire			m_last, m_user,
+		output	wire			m_last, m_user
 		// }}}
 	);
 
@@ -81,7 +81,7 @@ module	qoi_decoder #(
 				DC_WIDTH  = 1,
 				DC_HEIGHT = 2,
 				DC_FORMAT = 3,
-				DC_DATA   = 4;
+				DC_DATA   = 4,
 				DC_TAIL   = 5;
 	localparam	SRW = 56 + DW;
 
@@ -89,17 +89,24 @@ module	qoi_decoder #(
 	reg	[LGFRAME-1:0]	r_width, r_height;
 
 	reg	[SRW-1:0]	sreg;
+	reg	[$clog2(SRW/8+1)-1:0]	sr_nvalid, nxt_step, nxt_nvalid;
 	wire	[LGDB:0]	wide_qbytes;
-	reg			eoi_marker;
+	reg			eoi_marker, sr_last;
+	wire			sr_valid, sr_ready;
 
-	reg		pre_valid, pre_last;
+	reg		pre_valid;
 	reg	[39:0]	pre_data;
-	wire		pre_ready;
+	wire		pre_ready, pre_last;
 
 	reg		in_valid, in_last;
 	reg	[39:0]	in_data;
+	wire		in_ready;
 
-	reg			m_hlast, m_vlast, m_eof;
+	wire		d_valid, d_ready, d_last;
+	wire	[23:0]	d_pixel;
+
+	reg	[LGFRAME-1:0]	ypos, xpos;
+	reg			m_hlast, m_vlast, m_eof, midframe, lcl_reset;
 	// }}}
 	////////////////////////////////////////////////////////////////////////
 	//
@@ -164,21 +171,23 @@ module	qoi_decoder #(
 	if (i_reset)
 		state <= DC_SYNC;
 	else case(state)
-	DC_SYNC: if ((sreg_nvalid >= 4) && (sreg[DW+31-1:DW] == "qoif"))
+	DC_SYNC: if ((sr_nvalid >= 4) && (sreg[SRW-1:SRW-32] == "qoif"))
 		state <= DC_WIDTH;
-	DC_WIDTH: if (sreg_nvalid >= 4)
+	DC_WIDTH: if (sr_nvalid >= 4)
 		state <= DC_HEIGHT;
-	DC_HEIGHT: if (sreg_nvalid >= 4)
+	DC_HEIGHT: if (sr_nvalid >= 4)
 		state <= DC_FORMAT;
-	DC_FORMAT: if (sreg_nvalid >= 2)
+	DC_FORMAT: if (sr_nvalid >= 2)
 		state <= DC_DATA;
 	DC_DATA: begin
-		if(sreg_nvalid >= 8 && eoi_marker && (!pre_valid || pre_ready))
+		if(sr_nvalid >= 8 && eoi_marker && (!pre_valid || pre_ready))
 			state <= DC_TAIL;
 		// if (i_qvalid && o_qready && i_qlast)
 		//	state <= DC_TAIL;
+		end
 	DC_TAIL: if (m_valid && m_ready && m_eof)
 		state <= DC_SYNC;
+	default: state <= DC_SYNC;
 	endcase
 	// }}}
 
@@ -191,7 +200,7 @@ module	qoi_decoder #(
 	begin
 		r_width  <= DEF_WIDTH;
 		r_height <= DEF_HEIGHT;
-	end else if (sreg_nvalid >= 4)
+	end else if (sr_nvalid >= 4)
 	begin
 		if (state == DC_WIDTH)
 			r_width <= sreg[SRW-32 +: LGFRAME];
@@ -200,23 +209,23 @@ module	qoi_decoder #(
 	end
 	// }}}
 
-	// sreg_nvalid
+	// sr_nvalid
 	// {{{
-	assign	wide_qbytes = (i_qbytes == 0) ? DB : { 1'b0, i_qbytes };
+	assign	wide_qbytes = (i_qbytes == 0) ? DB[LGDB:0] : { 1'b0, i_qbytes };
 
 	always @(*)
-	case{ (i_qvalid && o_qready), (sr_valid && sr_ready) })
-	2'b00: nxt_nvalid = sreg_nvalid;
-	2'b10: nxt_nvalid = sreg_nvalid + wide_qbytes;
-	2'b01: nxt_nvalid = sreg_nvalid - nxt_step;
-	2'b11: nxt_nvalid = sreg_nvalid + wide_qbytes - nxt_step;
+	case({ (i_qvalid && o_qready), (sr_valid && sr_ready) })
+	2'b00: nxt_nvalid = sr_nvalid;
+	2'b10: nxt_nvalid = sr_nvalid + wide_qbytes;
+	2'b01: nxt_nvalid = sr_nvalid - nxt_step;
+	2'b11: nxt_nvalid = sr_nvalid + wide_qbytes - nxt_step;
 	endcase
 
 	always @(posedge i_clk)
 	if (i_reset)
-		sreg_nvalid <= 0;
+		sr_nvalid <= 0;
 	else
-		sreg_nvalid <= nxt_nvalid;
+		sr_nvalid <= nxt_nvalid;
 	// }}}
 
 	// sr_last
@@ -227,7 +236,7 @@ module	qoi_decoder #(
 	else begin
 		// if (i_qvalid && i_qready && i_qlast)
 		//	sr_last <= 1'b1;
-		if (sr_valid && sr_ready && sreg_nvalid >= 8 && eoi_marker)
+		if (sr_valid && sr_ready && sr_nvalid >= 8 && eoi_marker)
 			sr_last <= 1'b1;
 		// if (state != DC_DATA)
 		//	sr_last <= 1'b0;
@@ -239,17 +248,21 @@ module	qoi_decoder #(
 	always @(posedge i_clk)
 	if (i_reset || sr_last)
 		sreg <= 0;
-	else case{ (i_qvalid && o_qready), (sr_valid && sr_ready) })
+	else case({ (i_qvalid && o_qready), (sr_valid && sr_ready) })
 	2'b00: begin end
-	2'b10: sreg <= sreg | (i_qdata << (SRW - sreg_nvalid*8));
+	2'b10: sreg <= sreg
+		| ({ {(SRW-DW){1'b0}}, i_qdata } << (SRW - sr_nvalid*8));
 	2'b01: sreg <= sreg << (8*nxt_step);
-	2'b11: sreg <= (sreg << (8*nxt_step)) | (i_qdata << (SRW-(8*nxt_nvalid)));
+	2'b11: sreg <= (sreg << (8*nxt_step))
+		| ({ {(SRW-DW){1'b0}}, i_qdata } << (SRW-(8*nxt_nvalid)));
 	endcase
 	// }}}
 
-	assign	sr_valid = (state == DC_DATA) && (sreg_nvalid >= 8);
+	assign	sr_valid = (state == DC_DATA) && (sr_nvalid >= 8);
 	assign	sr_ready = !pre_valid || pre_ready || (state != DC_DATA);
-	assign	o_qready = (state != DC_TAIL) && (SRW-sreg_nvalid >= DB);
+	// Verilator lint_off WIDTH
+	assign	o_qready = (state != DC_TAIL) && (SRW/8-sr_nvalid >= DB);
+	// Verilator lint_on  WIDTH
 	// }}}
 	////////////////////////////////////////////////////////////////////////
 	//
@@ -259,7 +272,7 @@ module	qoi_decoder #(
 	if (i_reset)
 		pre_valid <= 1'b0;
 	else if (sr_valid && sr_ready)
-		pre_valid <= (sreg_nvalid >= 8)&& (state == DC_DATA);
+		pre_valid <= (sr_nvalid >= 8)&& (state == DC_DATA);
 	else if (pre_ready)
 		pre_valid <= 1'b0;
 
@@ -267,7 +280,7 @@ module	qoi_decoder #(
 	if (sr_valid && sr_ready)
 		pre_data <= sreg[SRW-1:SRW-40];
 
-	assign	pre_last = sreg_last;
+	assign	pre_last = sr_last;
 
 	// }}}
 	////////////////////////////////////////////////////////////////////////
@@ -290,7 +303,7 @@ module	qoi_decoder #(
 	if (pre_valid && pre_ready)
 		in_last <= pre_last;
 
-	assign	in_ready = (sr_nvalid >= 8)&&(!pre_valid || pre_ready);
+	assign	pre_ready = !pre_valid || (sr_nvalid >= 8);
 
 	// }}}
 	////////////////////////////////////////////////////////////////////////
@@ -300,15 +313,11 @@ module	qoi_decoder #(
 	////////////////////////////////////////////////////////////////////////
 	//
 
-	qoi_decompress #(
-		.LGWID(16)
-	) u_decompress (
+	qoi_decompress
+	u_decompress (
 		// {{{
 		.i_clk(i_clk),
 		.i_reset(i_reset || lcl_reset || (m_valid && m_eof)),
-		//
-		.i_width(r_width),
-		.i_height(r_height),
 		//
 		.s_valid(in_valid),
 		.s_ready(in_ready),
@@ -390,5 +399,6 @@ module	qoi_decoder #(
 		assign	m_user = m_hlast;
 	end endgenerate
 
+	assign	d_ready = !m_valid || m_ready;
 	// }}}
 endmodule

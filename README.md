@@ -98,9 +98,9 @@ The current (and planned) components of this repository include:
   It removes the header and trailer, detects the width and height, and
   produces a one-frame AXI video stream as an output.  That is, it will
   produce one frame per incoming QOI image once completed.  This component is
-  even less developed than the [QOI decompressor](rtl/qoi_decompress.v), since
-  this one doesn't even pass the lint check yet.  As such, it's clearly
-  not ready for prime time ... yet.
+  about as developed as the [QOI decompressor](rtl/qoi_decompress.v), since
+  both only pass lint checks.  As such, neither are ready for prime time
+  ... yet.
 - _qoi_framebuffer_ is not yet written.  Once written,
   this component will repeatedly read QOI image files from memory, and
   feed them to the decoder.  The result (should) be a proper video

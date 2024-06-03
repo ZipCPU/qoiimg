@@ -116,15 +116,15 @@ module	qoi_decompress (
 		// }}}
 		// Pixel stream output
 		// {{{
-		output	wire		m_vid_valid,
-		input	wire		m_vid_ready,
-		output	wire	[23:0]	m_vid_data,
+		output	wire		m_valid,
+		input	wire		m_ready,
+		output	wire	[23:0]	m_data,
 		// We have no knowledge of height or width here.  Hence the
 		// video last signal only indicates the last pixel in the
 		// frame, not the last pixel in a line or any other such thing.
 		// The decoder shell should take care of the rest of the video
 		// sync signals.
-		output	wire		m_vid_last
+		output	wire		m_last
 		// }}}
 	);
 
@@ -397,12 +397,12 @@ module	qoi_decompress (
 	if (s3_valid && s3_ready)
 		s4_pixel <= s3_pixel;
 
-	assign	s4_ready = !m_vid_valid || m_vid_ready;
+	assign	s4_ready = !m_valid || m_ready;
 	// }}}
 
-	assign	m_vid_valid = s4_valid;
-	assign	m_vid_data  = s4_pixel[31:8];
-	assign	m_vid_last  = s4_last && (s4_count == 0);
+	assign	m_valid = s4_valid;
+	assign	m_data  = s4_pixel[31:8];
+	assign	m_last  = s4_last && (s4_count == 0);
 
 	// Keep Verilator happy
 	// {{{
