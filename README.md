@@ -71,6 +71,42 @@ verification based.
 
 One step at a time.
 
+The current (and planned) components of this repository include:
+
+- [qoi_compress](rtl/qoi_compress.v) compresses pixel data.  This
+  critical component has now been formally verified.
+- [qoi_encoder](rtl/qoi_encoder.v) wraps the compression algorithm, providing
+  both a file header containing image width and height, as well as an
+  image trailer.  While this component has worked in hardware at one
+  time, it's probably been changed since ...  This clearly needs a better
+  verification environment before it should be trusted.
+- [qoi_recorder](rtl/qoi_recorder.v) wraps the [QOI encoder](rtl/qoi_encoder.v)
+  so that an entire image stream may be encoded and a fixed number of images
+  may be copied to memory.  This recording capability depends upon both the
+  [RXGears](https://github.com/ZipCPU/zipcpu/blob/master/rtl/zipdma/zipdma_rxgears.v) and the
+  [S2MM](https://github.com/ZipCPU/zipcpu/blob/master/rtl/zipdma/zipdma_s2mm.v)
+  components of the ZipDMA, both found in the
+  [ZipCPU's git repository](https://github.com/ZipCPU/zipcpu).  As with
+  the encoder, this component has worked in hardware (at one time) but the
+  verification infrastructure (which should be found here) remains
+  woefully inadequate (i.e. non-existent).
+- [qoi_decompress](rtl/qoi_decompress.v) is designed to decompress QOI encoded
+  pixel data.  At present, this component passes a lint check.  Yep.
+  That's it.  I wouldn't be ready to place any confidence in this component yet
+  either.
+- [qoi_decoder](rtl/qoi_decoder.v) is designed to decompress QOI frames (files).
+  It removes the header and trailer, detects the width and height, and
+  produces a one-frame AXI video stream as an output.  That is, it will
+  produce one frame per incoming QOI image once completed.  This component is
+  even less developed than the [QOI decompressor](rtl/qoi_decompress.v), since
+  this one doesn't even pass the lint check yet.  As such, it's clearly
+  not ready for prime time ... yet.
+- _qoi_framebuffer_ is not yet written.  Once written,
+  this component will repeatedly read QOI image files from memory, and
+  feed them to the decoder.  The result (should) be a proper video
+  stream once completed.  (Yeah, I know, I'll believe it when I see it
+  too.)  For now, this component is nothing more than vaporware.
+
 ## License
 
 This IP is available under GPLv3.  Other licenses may be available for
