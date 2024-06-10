@@ -1,12 +1,14 @@
 [tasks]
 prf
-# prfsof	prf opt_sof
-# cvr
+prfsof	prf opt_sof
+cvr
 
 [options]
 prf: mode prove
-depth 20
-# cvr: mode cover
+depth 5
+## depth 25
+cvr: mode cover
+cvr: depth 40
 
 [engines]
 smtbmc

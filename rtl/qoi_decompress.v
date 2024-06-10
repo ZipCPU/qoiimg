@@ -104,6 +104,7 @@
 //
 ////////////////////////////////////////////////////////////////////////////////
 //
+`default_nettype none
 // }}}
 module	qoi_decompress (
 		input	wire		i_clk, i_reset,
@@ -147,7 +148,7 @@ module	qoi_decompress (
 	wire		s2_ready;
 	reg	[2:0]	s2_code;
 	reg	[31:0]	s2_pix;
-	reg	[5:0]	s2_index, s2_alpha;
+	reg	[5:0]	s2_index, s2_alpha, s2_run;
 
 	reg		s3_valid, s3_last;
 	wire		s3_ready;
@@ -172,12 +173,14 @@ module	qoi_decompress (
 	//
 	// s1
 	// {{{
+
+	initial	s1_valid = 1'b0;
 	always @(posedge i_clk)
 	if (i_reset)
 		{ s1_valid, s1_last } <= 0;
 	else if (!s1_valid || s1_ready)
 		{ s1_valid, s1_last } <= { s_valid, s_last };
-// 39-32:39-38,37-32, 31-24:31:28,27:24
+
 	// Red - green
 	assign	dr_sum = { {(4){s_data[31]}}, s_data[31:28] }
 					+ { {(2){s_data[37]}}, s_data[37:32] };
@@ -185,50 +188,21 @@ module	qoi_decompress (
 	assign	db_sum = { {(4){s_data[27]}}, s_data[27:24] }
 					+ { {(2){s_data[37]}}, s_data[37:32] };
 
-
 	always @(posedge i_clk)
 	if (s_valid && s_ready)
 	begin
 		case(s_data[39:38])
 		2'b00: begin	// Table lookup
-			if (s_data[39:32] == 8'hfe)
-			begin // RGB
-			s1_code <= C_RGB;
-			s1_pix  <= { s_data[31: 8], 8'h0 };
-			// R * 3
-			s1_prer <= { s_data[28:24], 1'b0 } + s_data[29:24];
-			// G * 5
-			s1_preg <= { s_data[19:16], 2'b0 } + s_data[21:16];
-			// B * 7
-			s1_preb <= { s_data[10: 8], 3'b0 } - s_data[13: 8];
-			// A * 11 = (255 * 11), but only on the first case
-			//	1011 0000 0000
-			//	1111 1111 0101
-			//	--------------
-			//	1010 1111 0101 -> 11 0101 -> 48+5 = 53
-			// s1_prea <= 55; // This is an offset
-			end else if (s_data[39:32] == 8'hff)
-			begin // RGB + Alpha
-				s1_code<= C_RGBA;
-				s1_pix <=  s_data[31: 0];
-				// R *  3
-				s1_prer<={ s_data[28:24], 1'b0 }+ s_data[29:24];
-				// G *  5
-				s1_preg<={ s_data[19:16], 2'b0 }+ s_data[21:16];
-				// B *  7
-				s1_preb<={ s_data[10: 8], 3'b0 }- s_data[13: 8];
-				// A * 11 = (A << 3) + (A << 1) + A // 1011
-				s1_prea<={ s_data[ 2: 0], 3'b0 }
-					+{ s_data[ 4: 0], 1'b0 }+ s_data[ 5: 0];
-			end else begin // Table lookup
-				s1_code <= C_TABLE;
-				s1_pix  <= { s_data[39:32], 24'h0 };
-				// Count
-				s1_prer <= 6'h0;
-				s1_preg <= 6'h0;
-				s1_preb <= 6'h0;
-				s1_prea <= 6'h0;
-			end end
+			// {{{
+			s1_code <= C_TABLE;
+			s1_pix  <= { s_data[39:32], 24'h0 };
+			//
+			s1_prer <= 6'h0;
+			s1_preg <= 6'h0;
+			s1_preb <= 6'h0;
+			s1_prea <= 6'h0;
+			end
+			// }}}
 		2'b01: begin
 			s1_code <= C_DELTA;
 			s1_pix[31:24] <= { {(6){s_data[37]}}, s_data[37:36]}+2;
@@ -247,6 +221,7 @@ module	qoi_decompress (
 			s1_prea <= 0;
 			end
 		2'b10: begin	// LUNA
+			// {{{
 			s1_code <= C_DELTA;
 			//
 			s1_pix[31:24] <= dr_sum + 8;
@@ -261,13 +236,47 @@ module	qoi_decompress (
 			s1_preb <= { db_sum[2:0], 3'b0 } - db_sum[5:0] + 6'd24;
 			s1_prea <= 0;
 			end
-		2'b11: begin // (Keep as run and length)
-			s1_code <= C_REPEAT;
-			s1_pix <= { s_data[39:32], 24'h0 };
-			s1_prer <= 0;
-			s1_preg <= 0;
-			s1_preb <= 0;
-			s1_prea <= 0;
+			// }}}
+		2'b11: if (s_data[39:32] == 8'hfe)
+			begin // RGB
+				// {{{
+				s1_code <= C_RGB;
+				s1_pix  <= { s_data[31: 8], 8'h0 };
+				// R * 3
+				s1_prer <= { s_data[28:24], 1'b0 } + s_data[29:24];
+				// G * 5
+				s1_preg <= { s_data[19:16], 2'b0 } + s_data[21:16];
+				// B * 7
+				s1_preb <= { s_data[10: 8], 3'b0 } - s_data[13: 8];
+				// A * 11 = (255 * 11), but only on the first case
+				//	1011 0000 0000
+				//	1111 1111 0101
+				//	--------------
+				//	1010 1111 0101 -> 11 0101 -> 48+5 = 53
+				// s1_prea <= 55; // This is an offset
+				// }}}
+			end else if (s_data[39:32] == 8'hff)
+			begin // RGB + Alpha
+				// {{{
+				s1_code<= C_RGBA;
+				s1_pix <=  s_data[31: 0];
+				// R *  3
+				s1_prer<={ s_data[28:24], 1'b0 }+ s_data[29:24];
+				// G *  5
+				s1_preg<={ s_data[19:16], 2'b0 }+ s_data[21:16];
+				// B *  7
+				s1_preb<={ s_data[10: 8], 3'b0 }- s_data[13: 8];
+				// A * 11 = (A << 3) + (A << 1) + A // 1011
+				s1_prea<={ s_data[ 2: 0], 3'b0 }
+					+{ s_data[ 4: 0], 1'b0 }+ s_data[ 5: 0];
+				// }}}
+			end else begin // (Keep as run and length)
+				s1_code <= C_REPEAT;
+				s1_pix <= { s_data[39:32], 24'h0 };
+				s1_prer <= 0;
+				s1_preg <= 0;
+				s1_preb <= 0;
+				s1_prea <= 0;
 			end
 		endcase
 	end
@@ -279,6 +288,7 @@ module	qoi_decompress (
 	// s2
 	// {{{
 
+	initial	s2_valid = 1'b0;
 	always @(posedge i_clk)
 	if (i_reset)
 		{ s2_valid, s2_last } <= 0;
@@ -288,19 +298,33 @@ module	qoi_decompress (
 	always @(posedge i_clk)
 	if (i_reset)
 		s2_alpha <= 6'h35;
-	else if (s2_valid && s2_ready && s1_code == C_RGBA)
+	else if (s1_valid && s1_ready && s1_code == C_RGBA)
 		s2_alpha <= s1_prea;
+	// else if (s3_valid && s3_code == C_TABLE)
+	//	s2_alpha <= s3_lookup[7:0] + (s3_lookup[7:0] << 1)
+	//			+ (s3_lookup[7:0] << 3);
 
 	always @(posedge i_clk)
-	if (s2_valid && s2_ready)
+	if (i_reset)
+		s2_pix <= 0;
+	else if (s1_valid && s1_ready)
+	begin
+		if (s1_code == C_TABLE)
+			s2_pix  <= 0;
+		else if (s1_code != C_REPEAT)
+			s2_pix  <= s1_pix;
+	end
+
+	always @(posedge i_clk)
+	if (s1_valid && s1_ready)
 	begin
 		s2_code <= s1_code;
-		s2_pix  <= s1_pix;
+		s2_run  <= (s1_code == C_REPEAT) ? s1_pix[29:24] : 6'h0;
 		case(s1_code)
-		C_RGB:    s2_index <= s1_prer + s1_preg + s1_preb + s2_alpha;
+		C_RGB:    s2_index <= s1_prer + s1_preg + s1_preb;// + s2_alpha;
 		C_RGBA:   s2_index <= s1_prer + s1_preg + s1_preb + s1_prea;
 		C_TABLE:  s2_index <= s1_pix[29:24];
-		C_DELTA:  s2_index <= s1_prer + s1_preg + s1_preb + s2_index;
+		C_DELTA:  s2_index <= s1_prer + s1_preg + s1_preb;// + s2_index;
 		C_REPEAT: s2_index <= s2_index;
 		default: begin end
 		endcase
@@ -313,6 +337,7 @@ module	qoi_decompress (
 	// s3: Table lookup
 	// {{{
 
+	initial	s3_valid = 1'b0;
 	always @(posedge i_clk)
 	if (i_reset)
 		{ s3_last, s3_valid } <= 0;
@@ -323,20 +348,22 @@ module	qoi_decompress (
 	if (s2_valid && s2_ready && s2_code == C_TABLE)
 		s3_lookup <= tbl[s2_index];
 
-	assign	s3_write_index = (s2_code < C_TABLE) ? s2_index : (s3_index + s2_index);
+	assign	s3_write_index = (s2_code == C_RGB) ? (s2_index + s2_alpha)
+			:(s2_code < C_TABLE) ? s2_index : (s3_index + s2_index);
 	always @(*)
 	begin
+		s3_write_value = s3_raw;
 		case(s2_code)
-		C_RGB:   s3_write_value = s2_pix;
-		C_RGBA:  s3_write_value = { s2_pix[31:8], s3_pixel[7:0] };
+		C_RGB:   s3_write_value[31:8] = s2_pix[31:8];
+		C_RGBA:  s3_write_value = s2_pix[31:0];
 		C_TABLE: s3_write_value = s3_pixel;	// Could be anything ...
 		C_DELTA: begin
 			s3_write_value[31:24]= s2_pix[31:24]+ s3_pixel[31:24];
 			s3_write_value[23:16]= s2_pix[23:16]+ s3_pixel[23:16];
 			s3_write_value[15: 8]= s2_pix[15: 8]+ s3_pixel[15: 8];
-			s3_write_value[ 7: 0]= s3_pixel[31:24];
+			s3_write_value[ 7: 0]= s3_pixel[7:0];
 			end
-		default: s3_write_value = s2_pix;
+		default: begin end // s3_write_value = s2_pix;
 		endcase
 	end
 
@@ -345,19 +372,33 @@ module	qoi_decompress (
 		tbl[s3_write_index] <= s3_write_value;
 
 	always @(posedge i_clk)
-	if (s2_valid && s2_ready)
 	begin
-		s3_code <= s2_code;
-		s3_raw  <= s3_write_value;
-		if (s2_code == C_TABLE)
-			s3_index <= s2_index;
-		else
-			s3_index <= s3_write_index;
+		if (s2_valid && s2_ready)
+		begin
+			s3_code <= s2_code;
+			if (s2_code == C_TABLE)
+				s3_index <= s2_index;
+			else if (s2_code != C_REPEAT)
+				s3_index <= s3_write_index;
 
-		if (s2_code == C_REPEAT)
-			s3_run <= s2_pix[29:24];
-		else
-			s3_run <= 0;
+
+			if (s2_code == C_REPEAT)
+			begin
+				s3_run <= s2_run;
+				if (s3_code == C_TABLE)
+					s3_raw <= s3_lookup;
+			end else begin
+				s3_run <= 0;
+				s3_raw  <= s3_write_value;
+			end
+		end
+
+		if (i_reset)
+		begin
+			s3_raw   <= 32'h00ff;
+			s3_code  <= C_RGBA;
+			s3_index <= 6'h35;
+		end
 	end
 
 	assign	s3_pixel = (s3_code == C_TABLE) ? s3_lookup : s3_raw;
@@ -368,6 +409,7 @@ module	qoi_decompress (
 	// s4: Repeats
 	// {{{
 
+	initial	s4_valid = 1'b0;
 	always @(posedge i_clk)
 	if (i_reset)
 		{ s4_last, s4_valid } <= 0;
@@ -390,14 +432,14 @@ module	qoi_decompress (
 			s4_count <= 0;
 		else
 			s4_count <= s3_run;
-	end else if (s4_ready && s4_count > 0)
+	end else if ((!m_valid || m_ready) && s4_count > 0)
 		s4_count <= s4_count - 1;
 
 	always @(posedge i_clk)
-	if (s3_valid && s3_ready)
+	if (s3_valid && s3_ready && s3_code != C_REPEAT)
 		s4_pixel <= s3_pixel;
 
-	assign	s4_ready = !m_valid || m_ready;
+	assign	s4_ready = (!m_valid || m_ready)&&(s4_count == 0);
 	// }}}
 
 	assign	m_valid = s4_valid;
@@ -411,4 +453,218 @@ module	qoi_decompress (
 	assign	unused = &{ 1'b0, s4_pixel[7:0] };
 	// Verilator lint_on  UNUSED
 	// }}}
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+// Formal properties
+// {{{
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+`ifdef	FORMAL
+	reg	f_past_valid;
+
+	initial	f_past_valid = 1'b0;
+	always @(posedge i_clk)
+		f_past_valid <= 1'b1;
+
+	always @(*)
+	if (!f_past_valid)
+		assume(i_reset);
+
+	////////////////////////////////////////////////////////////////////////
+	//
+	// S_* input properties
+	// {{{
+	always @(posedge i_clk)
+	if (!f_past_valid || $past(i_reset))
+		assume(!s_valid);
+	else if ($past(s_valid && !s_ready))
+	begin
+		assume(s_valid);
+		assume($stable(s_data));
+		assume($stable(s_last));
+	end
+
+	// No two table look ups to the same element in a row
+
+	// }}}
+	////////////////////////////////////////////////////////////////////////
+	//
+	// S1
+	// {{{
+	reg	[39:0]	f1_raw;
+
+	always @(posedge i_clk)
+	if (!f_past_valid || $past(i_reset))
+		assert(!s1_valid);
+	else if ($past(s1_valid && !s1_ready))
+	begin
+		assert(s1_valid);
+		assert($stable(s1_code));
+		assert($stable(s1_last));
+		assert($stable(s1_pix));
+		assert($stable(s1_prer));
+		assert($stable(s1_preg));
+		assert($stable(s1_preb));
+		assert($stable(s1_prea));
+
+		assert($stable(f1_raw));
+	end
+
+	always @(posedge i_clk)
+	if (s_valid && s_ready)
+		f1_raw <= s_data;
+	// }}}
+	////////////////////////////////////////////////////////////////////////
+	//
+	// S2
+	// {{{
+	reg	[39:0]	f2_raw;
+
+	always @(posedge i_clk)
+	if (!f_past_valid || $past(i_reset))
+		assert(!s2_valid);
+	else if ($past(s2_valid && !s2_ready))
+	begin
+		assert(s2_valid);
+		assert($stable(s2_code));
+		assert($stable(s2_last));
+		assert($stable(s2_pix));
+		assert($stable(s2_index));
+		assert($stable(s2_alpha));
+		assert($stable(s2_run));
+
+		assert($stable(f2_raw));
+	end
+
+	always @(posedge i_clk)
+	if (s1_valid && s1_ready)
+		f2_raw <= f1_raw;
+	// }}}
+	////////////////////////////////////////////////////////////////////////
+	//
+	// S3
+	// {{{
+	reg	[39:0]	f3_raw;
+
+	always @(posedge i_clk)
+	if (!f_past_valid || $past(i_reset))
+		assert(!s3_valid);
+	else if ($past(s3_valid && !s3_ready))
+	begin
+		assert(s3_valid);
+		assert($stable(s3_code));
+		assert($stable(s3_last));
+		assert($stable(s3_pixel));
+		assert($stable(s3_raw));
+		assert($stable(s3_run));
+		assert($stable(s3_index));
+		assert($stable(s3_lookup));
+
+		assert($stable(f3_raw));
+	end
+
+	always @(posedge i_clk)
+	if (s2_valid && s2_ready)
+		f3_raw <= f2_raw;
+
+	reg	[5:0]	f2_index, f3_index;
+
+	always @(*)
+	begin
+		f2_index = s3_write_value[31:24] + (s3_write_value[31:24]<<1)
+			+ s3_write_value[23:16] + (s3_write_value[23:16]<<2)
+			- s3_write_value[15: 8] + (s3_write_value[15: 8]<<3);
+		// + ALPHA * 11
+		f2_index = f2_index + s3_write_value[7:0]
+			+ (s3_write_value[7:0] << 1)
+			+ (s3_write_value[7:0] << 3);
+
+		f3_index = s3_lookup[31:24] + (s3_lookup[31:24]<<1)
+			+ s3_lookup[23:16] + (s3_lookup[23:16]<<2)
+			- s3_lookup[15: 8] + (s3_lookup[15: 8]<<3);
+		// + ALPHA * 11
+		f3_index = f3_index + s3_lookup[7:0]
+			+ (s3_lookup[7:0] << 1)
+			+ (s3_lookup[7:0] << 3);
+	end
+
+	always @(*)
+	if (!i_reset && s2_valid && (s2_code != C_TABLE && s2_code != C_REPEAT))
+	begin
+		assert(f2_index == s3_write_index);
+	end
+
+	always @(*)
+	if (s3_code == C_TABLE)
+	begin
+		assume(f3_index == s3_index);
+	end
+	// }}}
+	////////////////////////////////////////////////////////////////////////
+	//
+	// Never Alpha
+	// {{{
+	(* anyconst *)	reg	fnvr_alpha;
+
+	always @(*)
+		assume(fnvr_alpha);
+
+	always @(*)
+	if (!i_reset && fnvr_alpha && s_valid)
+		assume(s_data[39:32] != 8'hff);
+
+	always @(*)
+	if (!i_reset && fnvr_alpha && s1_valid)
+		assert(s1_code != C_RGBA);
+
+	always @(*)
+	if (!i_reset && fnvr_alpha && s2_valid)
+		assert(s2_code != C_RGBA);
+
+	always @(*)
+	if (!i_reset && fnvr_alpha && s2_valid && (s2_code != C_TABLE && s2_code != C_REPEAT))
+	begin
+		assert(s3_write_value[7:0] == 8'hff);
+	end
+
+	always @(*)
+	if (!i_reset && fnvr_alpha && s3_valid)
+	begin
+		assert(s3_code != C_RGBA);
+		assume(s3_lookup[7:0] == 8'hff);
+	end
+
+	// }}}
+	////////////////////////////////////////////////////////////////////////
+	//
+	// "Careless" assumptions
+	// {{{
+	always @(*)
+	if(s_valid)
+		assume(s_data[39:38] != 2'b10);
+	// always @(*)
+	// if(s_valid)
+	//	assume(s_data[39:38] != 2'b01);
+	always @(*)
+	if(!i_reset && s1_valid)
+		assert(f1_raw[39:38] != 2'b10);
+	always @(*)
+	if(!i_reset && s2_valid)
+		assert(f2_raw[39:38] != 2'b10);
+	always @(*)
+	if(!i_reset && s3_valid)
+		assert(f3_raw[39:38] != 2'b10);
+
+	always @(*)
+		assume(m_ready);
+
+	always @(posedge i_clk)
+	if (!f_past_valid && !$past(i_reset) && $past(s_valid && s_last))
+		assume(s_valid);
+	// }}}
+
+`endif	// FORMAL
+// }}}
 endmodule

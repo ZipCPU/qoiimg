@@ -133,10 +133,12 @@ module	qoi_decoder #(
 	// {{{
 	always @(*)
 	begin
+		nxt_step = 4;
 		if (state == DC_SYNC)
 		begin
 			// if (sreg[DW+32-1:DW] == "qoif")
 			//	step = 4;
+			nxt_step = 4;
 			if (sreg[SRW-8-1:SRW-32] == "qoi")
 				nxt_step = 1;
 			else if (sreg[SRW-16-1:SRW-32] == "qo")
@@ -170,7 +172,8 @@ module	qoi_decoder #(
 	always @(posedge i_clk)
 	if (i_reset)
 		state <= DC_SYNC;
-	else case(state)
+	else if (sr_valid && sr_ready)
+	case(state)
 	DC_SYNC: if ((sr_nvalid >= 4) && (sreg[SRW-1:SRW-32] == "qoif"))
 		state <= DC_WIDTH;
 	DC_WIDTH: if (sr_nvalid >= 4)
@@ -251,17 +254,17 @@ module	qoi_decoder #(
 	else case({ (i_qvalid && o_qready), (sr_valid && sr_ready) })
 	2'b00: begin end
 	2'b10: sreg <= sreg
-		| ({ {(SRW-DW){1'b0}}, i_qdata } << (SRW - sr_nvalid*8));
+		| ({ {(SRW-DW){1'b0}}, i_qdata } << ((SRW-DW) - sr_nvalid*8));
 	2'b01: sreg <= sreg << (8*nxt_step);
 	2'b11: sreg <= (sreg << (8*nxt_step))
 		| ({ {(SRW-DW){1'b0}}, i_qdata } << (SRW-(8*nxt_nvalid)));
 	endcase
 	// }}}
 
-	assign	sr_valid = (state == DC_DATA) && (sr_nvalid >= 8);
+	assign	sr_valid = (sr_nvalid >= 8);
 	assign	sr_ready = !pre_valid || pre_ready || (state != DC_DATA);
 	// Verilator lint_off WIDTH
-	assign	o_qready = (state != DC_TAIL) && (SRW/8-sr_nvalid >= DB);
+	assign	o_qready = (state != DC_TAIL && state != DC_DATA) || (sr_nvalid <= SRW/8-DB);
 	// Verilator lint_on  WIDTH
 	// }}}
 	////////////////////////////////////////////////////////////////////////
@@ -303,7 +306,7 @@ module	qoi_decoder #(
 	if (pre_valid && pre_ready)
 		in_last <= pre_last;
 
-	assign	pre_ready = !pre_valid || (sr_nvalid >= 8);
+	assign	pre_ready = (!in_valid || in_ready)&&(sr_nvalid >= 8);
 
 	// }}}
 	////////////////////////////////////////////////////////////////////////
@@ -372,6 +375,7 @@ module	qoi_decoder #(
 			m_hlast <= 1'b0;
 			xpos <= 0;
 			m_vlast <= (ypos + 2 >= r_height);
+			ypos <= ypos + 1;
 			if (ypos + 1 >= r_height)
 			begin
 				m_vlast <= 1'b0;

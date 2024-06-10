@@ -46,6 +46,7 @@
 module	qoi_encoder #(
 		// {{{
 		parameter	[0:0]	OPT_TUSER_IS_SOF = 1'b0,
+		parameter	[0:0]	OPT_LOWPOWER = 1'b0,
 		parameter	[15:0]	LGFRAME=16,
 		parameter		DW = 64,
 		localparam		DB = DW/8,
@@ -114,7 +115,7 @@ module	qoi_encoder #(
 	always @(posedge i_clk)
 	if (i_reset)
 		h_state <= S_NO_SYNC;
-	else if (s_valid && s_ready && s_last)
+	else if (s_valid && s_ready && s_hlast)
 	case(h_state)
 	S_NO_SYNC: h_state <= S_START;
 	default: h_state <= S_SYNCD;
@@ -145,6 +146,7 @@ module	qoi_encoder #(
 
 	generate if (OPT_TUSER_IS_SOF)
 	begin : GEN_VLAST
+		// {{{
 		wire	s_sof;
 		reg	r_vlast, r_syncd;
 
@@ -177,10 +179,12 @@ module	qoi_encoder #(
 		always @(posedge i_clk)
 		if (i_reset)
 			r_vlast <= 0;
-		else if (s_valid && s_ready)
+		else if (s_valid && s_ready && s_hlast)
 		begin
-			r_vlast <= (v_count + 1 == v_height);
+			r_vlast <= (v_count + 2 >= v_height);
 			if (v_state != S_SYNCD)
+				r_vlast <= 1'b0;
+			else if (r_vlast && s_hlast)
 				r_vlast <= 1'b0;
 		end
 
@@ -197,7 +201,9 @@ module	qoi_encoder #(
 		end
 
 		assign	syncd = r_syncd;
+		// }}}
 	end else begin : GEN_SIZES
+		// {{{
 		// No conversion required
 		assign	s_vlast = s_last;
 
@@ -226,6 +232,7 @@ module	qoi_encoder #(
 		end
 
 		assign	syncd = (h_state == S_SYNCD) && (v_state == S_SYNCD);
+		// }}}
 	end endgenerate
 
 	// }}}
@@ -309,12 +316,14 @@ module	qoi_encoder #(
 		frm_last  <= 1'b0;
 		end
 	FRM_HDRMAGIC: begin
+		if (!o_qvalid && !sr_last)
+		begin
 		frm_state <= FRM_HDRWIDTH;
 		frm_valid <= 1'b1;
 		frm_data  <= "qoif";
 		frm_bytes <= 2'b00;
 		frm_last  <= 1'b0;
-		end
+		end end
 	FRM_HDRWIDTH: begin
 		frm_state <= FRM_HDRHEIGHT;
 		frm_valid <= 1'b1;
@@ -373,7 +382,7 @@ module	qoi_encoder #(
 	endcase
 
 	// Verilator lint_off WIDTH
-	assign	frm_ready = (!o_qvalid || i_qready)||(sr_fill < DB && !sr_last);
+	assign	frm_ready = ((!o_qvalid || i_qready)&&sr_fill <= DB)||(sr_fill < DB && !sr_last);
 	// Verilator lint_on  WIDTH
 	// }}}
 	////////////////////////////////////////////////////////////////////////
@@ -411,7 +420,7 @@ module	qoi_encoder #(
 		if (frm_valid && frm_ready && (new_fill >= DB))
 			flush = 1'b1;
 
-		new_data = sreg| ({{(DW-32){1'b0}}, frm_data}
+		new_data = sreg| ({{(DW){1'b0}}, frm_data}
 							<< (DW - (sr_fill*8)));
 		// Verilator lint_on  WIDTH
 	end
@@ -452,16 +461,16 @@ module	qoi_encoder #(
 		else if (frm_valid)
 			sreg <= { new_data[31:0], {(DW){1'b0}} };
 		else
-			sreg <= 0;
+			sreg <= { sreg[31:0], {(DW){1'b0}} };
 	end else if (frm_valid && frm_ready)
 		sreg <= new_data;
 
 	always @(posedge i_clk)
-	if (!o_qvalid || i_qready)
+	if ((!o_qvalid || i_qready)&&(!OPT_LOWPOWER || flush))
 		o_qdata <= new_data[DW+31:32];
 
 	always @(posedge i_clk)
-	if (!o_qvalid || i_qready)
+	if ((!o_qvalid || i_qready)&&(!OPT_LOWPOWER || flush))
 	begin
 		// Verilator lint_off WIDTH
 		if (sr_last)
@@ -556,16 +565,220 @@ module	qoi_encoder #(
 	begin
 		assume(fs_xpos < f_width);
 		assume(fs_ypos < f_height);
+	end
 
+	always @(*)
+	if (!i_reset && s_valid)
+	begin
 		if (OPT_TUSER_IS_SOF)
 		begin
-			assume(!s_valid || s_last == fs_hlast);
-			assume(!s_valid || s_user == fs_sof);
+			assume( s_last == fs_hlast);
+			assume( s_user == fs_sof);
 		end else begin
-			assume(!s_valid || s_last == (fs_vlast && fs_hlast));
-			assume(!s_valid || s_user == fs_hlast);
+			assume( s_last == (fs_vlast && fs_hlast));
+			assume( s_user == fs_hlast);
 		end
 	end
+
+	always @(posedge i_clk)
+	if (!i_reset)
+	begin
+		assert(h_state != 2'b11);
+		if (h_state != S_NO_SYNC)
+			assert(h_count == fs_xpos);
+		if (h_state == S_SYNCD)
+			assert(h_width == f_width);
+		assert(h_count <= fs_xpos);
+	end
+
+	always @(posedge i_clk)
+	if (!i_reset)
+	begin
+		assert(v_state != 2'b11);
+		// if (v_state != S_NO_SYNC) assert(h_state != S_NO_SYNC);
+		// if (v_state == S_SYNCD) assert(h_state == S_SYNCD);
+		if (OPT_TUSER_IS_SOF)
+		begin
+			if (v_state != S_NO_SYNC)
+			begin
+				if (!fs_sof)
+					assert(v_count == fs_ypos);
+				else
+					assert(v_count == f_height);
+			end
+			if (v_state == S_SYNCD)
+				assert(v_height == f_height);
+			if (v_state == S_SYNCD)
+				assert(s_vlast == (fs_ypos +1 >= f_height));
+			if (v_count > 0)
+				assert(h_state != S_NO_SYNC);
+			if (h_count == 0 && v_state == S_START)
+				assert(h_state != S_NO_SYNC);
+			if (!fs_sof)
+				assert(v_count == fs_ypos);
+		end else begin
+			if (v_state != S_NO_SYNC)
+				assert(v_count == fs_ypos);
+			if (v_state == S_SYNCD)
+				assert(v_height == f_height);
+		end
+	end
+
+	always @(posedge i_clk)
+	if (!i_reset && syncd && s_valid)
+	begin
+		assert(s_hlast == fs_hlast);
+		assert(!s_hlast || s_vlast == fs_vlast);
+	end
+
+	always @(posedge i_clk)
+	if (!i_reset && syncd && OPT_TUSER_IS_SOF)
+		assert(s_vlast == (fs_ypos+1 >= f_height));
+
+	always @(posedge i_clk)
+	if (!i_reset && OPT_TUSER_IS_SOF && v_state != S_SYNCD)
+		assert(!s_vlast);
+
+	/*
+	always @(posedge i_clk)
+	if (!i_reset)
+	begin
+		if (v_height != 0 || f_known_height)
+			assert(v_height == f_height);
+		assert(v_count == fs_ypos);
+	end
+	*/
+	////////////////////////////////////////////////////////////////////////
+	//
+	// Encoder stage properties
+	// {{{
+	reg	[31:0]	enc_count;
+
+	initial	enc_count = 0;
+	always @(posedge i_clk)
+	if (i_reset)
+		enc_count <= 0;
+	else if (enc_valid && enc_ready)
+	begin
+		if (enc_last)
+			enc_count <= 0;
+		else if (enc_bytes == 0)
+			enc_count <= enc_count + 4;
+		else
+			enc_count <= enc_count + enc_bytes;
+	end
+
+	always @(posedge i_clk)
+	if (!i_reset && enc_count != 0)
+		assert(frm_state == FRM_DATA);
+
+	// }}}
+	////////////////////////////////////////////////////////////////////////
+	//
+	// Framing stage properties
+	// {{{
+	reg	[31:0]	frm_count;
+
+	initial	frm_count = 0;
+	always @(posedge i_clk)
+	if (i_reset)
+		frm_count <= 0;
+	else if (frm_valid && frm_ready)
+	begin
+		if (frm_last)
+			frm_count <= 0;
+		else if (frm_bytes == 0)
+			frm_count <= frm_count + 4;
+		else
+			frm_count <= frm_count + frm_bytes;
+	end
+
+	always @(*)
+	if (!i_reset && frm_valid)
+	case(frm_bytes)
+	2'b00: begin end
+	2'b01: assert(frm_data[23:0] == 24'h0);
+	2'b10: assert(frm_data[15:0] == 16'h0);
+	2'b11: assert(frm_data[ 7:0] == 24'h0);
+	default: begin end
+	endcase
+
+	always @(*)
+	if (!i_reset)
+	begin
+		if (frm_state != FRM_DATA)
+			assert(enc_count == 0);
+		else begin
+			assert(enc_count + 14 == frm_count
+				+ (frm_valid ? (frm_bytes + (frm_bytes == 0 ? 4:0)) : 0));
+		end
+	end
+
+	// }}}
+	////////////////////////////////////////////////////////////////////////
+	//
+	// Shift register
+	// {{{
+
+	always @(posedge i_clk)
+	if (!i_reset && (!o_qvalid || !o_qlast) && !sr_last)
+		assert(frm_count == fq_count + sr_fill + (o_qvalid ? 8:0));
+
+	always @(posedge i_clk)
+	if (!i_reset && !frm_valid)
+		assert(!frm_last);
+
+	always @(posedge i_clk)
+	if (!i_reset && sr_last)
+	begin
+		assert(sr_fill > 0);
+		assert(!o_qvalid || !o_qlast);
+	end
+
+	always @(posedge i_clk)
+	if (!i_reset && o_qvalid && o_qlast)
+	begin
+		assert(!sr_last);
+		assert(sr_fill == 0);
+		assert(!frm_valid);
+		assert(frm_state < FRM_HDRWIDTH);
+	end
+
+	always @(posedge i_clk)
+	if (!i_reset && (sr_last || (o_qvalid && o_qlast)))
+	begin
+		case(frm_state)
+		FRM_IDLE: assert(!frm_valid && frm_count == 0);
+		FRM_START: assert(frm_count == 0);
+		FRM_HDRMAGIC: assert(frm_count == 0);
+		FRM_HDRWIDTH: begin end
+		FRM_HDRHEIGHT: assert(frm_state == FRM_HDRHEIGHT && frm_count == 8 && !sr_last);
+		default: assert(0);
+		endcase
+		assert(!frm_valid);
+		assert(frm_count == 0);
+	end
+
+	always @(posedge i_clk)
+	if (!i_reset) case(frm_state)
+	FRM_IDLE: if (frm_valid) assert(frm_last && frm_bytes == 0); else assert(frm_count==0);
+	FRM_START: assert(syncd && !frm_valid && frm_count == 0);
+	FRM_HDRMAGIC: assert(syncd && !frm_valid && frm_count == 0 && frm_bytes==0);
+	FRM_HDRWIDTH: assert(!o_qvalid && sr_fill == 0 && syncd && frm_valid && frm_count == 0 && frm_bytes==0);
+	FRM_HDRHEIGHT: assert(!o_qvalid && syncd && frm_valid && frm_count == 4 && frm_bytes==0 && !sr_last);
+	FRM_HDRFORMAT: assert((!o_qvalid || !o_qlast) && syncd && frm_valid && frm_count == 8 && !sr_last);
+	FRM_DATA: assert(syncd && !sr_last && !frm_last);
+	FRM_TRAILER: assert(syncd && frm_valid && !frm_last && !sr_last);
+	FRM_LAST: assert(syncd && frm_valid && !frm_last && frm_bytes==0 && !sr_last);
+	default: assert(0);
+	endcase
+
+	// }}}
+	////////////////////////////////////////////////////////////////////////
+	//
+	// (Compressed) Stream properties
+	// {{{
+	reg	[31:0]	fq_count;
 
 	always @(posedge i_clk)
 	if (!f_past_valid || $past(i_reset))
@@ -581,6 +794,143 @@ module	qoi_encoder #(
 	always @(posedge i_clk)
 	if (f_past_valid && !$past(i_reset) && o_qvalid)
 		assert(o_qlast || o_qbytes == 0);
+
+	initial	fq_count = 0;
+	always @(posedge i_clk)
+	if (i_reset)
+		fq_count <= 0;
+	else if (o_qvalid && i_qready)
+	begin
+		if (o_qlast)
+			fq_count <= 0;
+		else
+			fq_count <= fq_count + DW/8;
+	end
+
+	always @(*)
+		assume(fq_count < 32'hef00_0000);
+	// }}}
+	////////////////////////////////////////////////////////////////////////
+	//
+	// Contract byte
+	// {{{
+
+	(* anyconst *)	reg	[31:0]	fc_index;
+	(* anyconst *)	reg	[7:0]	fc_byte;
+
+	reg	[31:0]	fenc_index, fsr_count;
+	reg	[7:0]	fenc_byte;
+	reg	[31:0]	enc_wide, frm_wide;
+	reg	[DW-1:0]	fq_wide;
+	reg	[DW+32-1:0]	fsr_empty, fsr_wide;
+
+	always @(*)
+		assume(fc_index >= 12+2);
+
+	always @(*)
+		fenc_index = fc_index - 14;
+
+	always @(*)
+	begin
+		enc_wide = enc_data << (8*(fenc_index - enc_count));
+		fenc_byte = enc_wide[31:24];
+
+		fsr_count = frm_count - sr_fill;
+
+		frm_wide = frm_data << (8*(fc_index - frm_count));
+		fsr_wide = sreg << (8*(fc_index - fsr_count));
+		fq_wide = o_qdata << (8*(fc_index - fq_count));
+	end
+
+	always @(*)
+	if (!i_reset && enc_valid && (enc_count < fenc_index))
+		assume(!enc_last);
+
+	always @(*)
+	if (!i_reset && enc_count + (enc_valid ? 4:0) < fenc_index)
+		assume(!enc_last);
+
+	always @(*)
+	if (!i_reset && enc_valid && (enc_count <= fenc_index)
+			&&((enc_bytes == 0 && enc_count+ 4 > fenc_index)
+			|| (enc_bytes != 0 && enc_count+ enc_bytes > fenc_index)))
+	begin
+		assume(fenc_byte == fc_byte);
+		assume(!enc_last);
+	end
+
+	always @(*)
+	if (!i_reset && frm_state == FRM_DATA)
+	begin
+		assert(frm_count >= 12);
+		if (frm_count < 14)
+		begin
+			assert(frm_valid);
+			assert(frm_count == 12);
+			assert(frm_bytes == 2);
+			assert(enc_count == 0);
+		end
+	end
+
+	always @(*)
+	if (!i_reset && frm_state > FRM_DATA)
+		assert(frm_count > fc_index);
+
+	always @(*)
+	if (!i_reset && frm_valid && (frm_count <= fc_index)
+			&&((frm_bytes == 0 && fc_index < frm_count+ 4)
+			|| (frm_bytes != 0 && fc_index < frm_count+ frm_bytes)))
+	begin
+		assert(frm_wide[31:24] == fc_byte);
+	end
+
+	always @(*)
+	if (!i_reset && !sr_last && sr_fill > 0 && (fsr_count <= fc_index)
+					&&(fc_index < fsr_count + sr_fill))
+	begin
+		assert(fsr_wide[DW+32-1:DW+24] == fc_byte);
+	end
+
+	always @(*)
+	if (!i_reset && o_qvalid && !o_qlast && (fq_count <= fc_index)
+			&&((o_qbytes == 0 && fc_index < fq_count+ 4)
+			|| (o_qbytes != 0 && fc_index < fq_count+ o_qbytes)))
+	begin
+		assert(fq_wide[DW-1:DW-8] == fc_byte);
+	end
+
+	always @(*)
+		fsr_empty = sreg << (sr_fill * 8);;
+
+	always @(*)
+	if(!i_reset)
+	begin
+		assert(sr_fill <= (DW+32)/8);
+		assert(fsr_empty == 0);
+	end
+	// }}}
+	////////////////////////////////////////////////////////////////////////
+	//
+	// Cover checks
+	// {{{
+
+	always @(*)
+	if (!i_reset && o_qvalid)
+	begin
+		cover(fq_count > 0);
+		cover(fq_count > 8);
+		cover(fq_count > 40 && o_qvalid && o_qlast);
+	end
+
+	// }}}
+	////////////////////////////////////////////////////////////////////////
+	//
+	// "Careless" assumptions
+	// {{{
+	// always @(*) assume(i_qready);
+	// always @(*) assume(enc_valid);
+
+	// }}}
 
 	// }}}
 `endif
