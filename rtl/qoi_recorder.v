@@ -1,8 +1,8 @@
 ////////////////////////////////////////////////////////////////////////////////
 //
-// Filename:	rtl/qoi_recorder.v
+// Filename:	./rtl/qoi_recorder.v
 // {{{
-// Project:	Quite OK image compression (QOI)
+// Project:	Quite OK image compression (QOI) Verilog implementation
 //
 // Purpose:	To write one (or more) video images to memory.  We'll use the
 //		QOI compression scheme to get the bandwidth down.  Once

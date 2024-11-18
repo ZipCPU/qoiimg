@@ -1,8 +1,8 @@
 ////////////////////////////////////////////////////////////////////////////////
 //
-// Filename:	rtl/qoi_decompress.v
+// Filename:	./rtl/qoi_decompress.v
 // {{{
-// Project:	Quite OK image compression (QOI)
+// Project:	Quite OK image compression (QOI) Verilog implementation
 //
 // Purpose:	Decodes the compressed data within a QOI image.  By the time
 //		we get the data, the header and trailer have already been
@@ -181,12 +181,26 @@ module	qoi_decompress (
 	else if (!s1_valid || s1_ready)
 		{ s1_valid, s1_last } <= { s_valid, s_last };
 
+	wire	[3:0]	s_dred, s_dblu;
+	wire	[5:0]	s_dgrn;
+
+	assign	s_dgrn = s_data[37:32] ^ 6'd32;
+	assign	s_dred = s_data[31:28] ^ 4'd8;
+	assign	s_dblu = s_data[27:24] ^ 4'd8;
+
 	// Red - green
-	assign	dr_sum = { {(4){s_data[31]}}, s_data[31:28] }
-					+ { {(2){s_data[37]}}, s_data[37:32] };
+	assign	dr_sum = { {(4){s_dred[3]}}, s_dred[3:0] }
+					+ { {(2){s_dgrn[5]}}, s_dgrn[5:0] };
 	// Blue - green
-	assign	db_sum = { {(4){s_data[27]}}, s_data[27:24] }
-					+ { {(2){s_data[37]}}, s_data[37:32] };
+	assign	db_sum = { {(4){s_dblu[3]}}, s_dblu[3:0] }
+					+ { {(2){s_dgrn[5]}}, s_dgrn[5:0] };
+
+	wire	[5:0]	s_delta;
+
+	assign	s_delta = {
+			s_data[37:36] ^ 2'b10,
+			s_data[35:34] ^ 2'b10,
+			s_data[33:32] ^ 2'b10 };
 
 	always @(posedge i_clk)
 	if (s_valid && s_ready)
@@ -205,18 +219,18 @@ module	qoi_decompress (
 			// }}}
 		2'b01: begin
 			s1_code <= C_DELTA;
-			s1_pix[31:24] <= { {(6){s_data[37]}}, s_data[37:36]}+2;
-			s1_pix[23:16] <= { {(6){s_data[35]}}, s_data[35:34]}+2;
-			s1_pix[15: 8] <= { {(6){s_data[33]}}, s_data[33:32]}+2;
+			s1_pix[31:24] <= { {(6){s_delta[5]}}, s_delta[5:4]};
+			s1_pix[23:16] <= { {(6){s_delta[3]}}, s_delta[3:2]};
+			s1_pix[15: 8] <= { {(6){s_delta[1]}}, s_delta[1:0]};
 			// dR * 3
-			s1_prer <= { {(3){s_data[37]}}, s_data[37:36], 1'b0 }
-				+ { {(4){s_data[37]}}, s_data[37:36] } + 6'h6;
+			s1_prer <= { {(3){s_delta[5]}}, s_delta[5:4], 1'b0 }
+				+ { {(4){s_delta[5]}}, s_delta[5:4] };
 			// dG * 5
-			s1_preg <= { {(2){s_data[35]}}, s_data[35:34], 2'b00 }
-				+ { {(4){s_data[35]}}, s_data[35:34] } + 6'ha;
+			s1_preg <= { {(2){s_delta[3]}}, s_delta[3:2], 2'b00 }
+				+ { {(4){s_delta[3]}}, s_delta[3:2] };
 			// dR * 7
-			s1_preb <= { {(1){s_data[33]}}, s_data[33:32], 3'b000 }
-				- { {(4){s_data[33]}}, s_data[33:32] } + 6'he;
+			s1_preb <= { {(1){s_delta[1]}}, s_delta[1:0], 3'b000 }
+				- { {(4){s_delta[1]}}, s_delta[1:0] };
 			// Alpha stays the same
 			s1_prea <= 0;
 			end
@@ -224,16 +238,15 @@ module	qoi_decompress (
 			// {{{
 			s1_code <= C_DELTA;
 			//
-			s1_pix[31:24] <= dr_sum + 8;
-			s1_pix[23:16] <= { {(2){s_data[37]}}, s_data[37:32]}+32;
-			s1_pix[15: 8] <= db_sum + 8;
+			s1_pix[31:24] <= dr_sum;
+			s1_pix[23:16] <= { {(2){s_dgrn[5]}}, s_dgrn[5:0]};
+			s1_pix[15: 8] <= db_sum;
 			s1_pix[ 7: 0] <= 0;
 			// dR * 3
-			s1_prer <= { dr_sum[4:0], 1'b0 } + dr_sum[5:0] + 6'd10;
+			s1_prer <= { dr_sum[4:0], 1'b0 } + dr_sum[5:0];
 			// dG * 5
-			s1_preg <= { s_data[37:32] }
-				+ { s_data[35:32], 2'b00 } + 6'd32;
-			s1_preb <= { db_sum[2:0], 3'b0 } - db_sum[5:0] + 6'd24;
+			s1_preg <= { s_dgrn[5:0] } + { s_dgrn[3:0], 2'b00 };
+			s1_preb <= { db_sum[2:0], 3'b0 } - db_sum[5:0];
 			s1_prea <= 0;
 			end
 			// }}}

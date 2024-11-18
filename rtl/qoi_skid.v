@@ -1,8 +1,8 @@
 ////////////////////////////////////////////////////////////////////////////////
 //
-// Filename: 	qoi_skid.v
+// Filename:	./rtl/qoi_skid.v
 // {{{
-// Project:	SDIO SD-Card controller
+// Project:	Quite OK image compression (QOI) Verilog implementation
 //
 // Purpose:	A basic SKID buffer.
 // {{{

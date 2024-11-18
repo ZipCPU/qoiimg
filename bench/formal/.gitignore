@@ -1,2 +1,3 @@
-qoi_compress_*/
-qoi_encoder_*/
+qoi_compress*/
+qoi_decompress*/
+qoi_encoder*/

@@ -1,6 +1,6 @@
 ////////////////////////////////////////////////////////////////////////////////
 //
-// Filename:	qoi_encoder.v
+// Filename:	./rtl/qoi_encoder.v
 // {{{
 // Project:	Quite OK image compression (QOI) Verilog implementation
 //

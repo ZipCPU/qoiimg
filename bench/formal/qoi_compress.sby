@@ -18,6 +18,7 @@ read -formal faxivideo.v
 cmd = "hierarchy -top qoi_compress"
 output(cmd)
 --pycode-end--
+proc -norom
 prep -top qoi_compress
 
 [files]

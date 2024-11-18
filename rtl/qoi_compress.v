@@ -1,8 +1,8 @@
 ////////////////////////////////////////////////////////////////////////////////
 //
-// Filename:	rtl/qoi_compress.v
+// Filename:	./rtl/qoi_compress.v
 // {{{
-// Project:	Quite OK image compression (QOI)
+// Project:	Quite OK image compression (QOI) Verilog implementation
 //
 // Purpose:	This encoder turns image data into compressed image data.  It
 //		doesn't handle header or trailer insertions.  As such, it
@@ -423,6 +423,7 @@ module	qoi_compress (
 			m_bytes <= 2'd1;
 		end else if (s4_tblset)
 		begin
+// $display("Encode: TBL[%02x] for %06x", s4_tblidx, s4_pixel);
 			m_data <= { 2'b00, s4_tblidx, 24'h0 };
 			m_bytes <= 2'd1;
 		end else if (s4_small)
