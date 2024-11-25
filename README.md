@@ -6,27 +6,27 @@ The full format description can be found
 This repository currently consists of a QOI [encoder](rtl/qoi_encoder.v)
 implementation.  This includes the file header,
 [image compression](rtl/qoi_compress.v), and trailer.  The result of this
-encoder is an AXI stream of video image "packets".  A
-Wishbone [recorder](rtl/qoi_recorder.v) can be used to record these packets to
-memory.  The [recorder](rtl/qoi_recorder.v) requires components from the
+encoder is an AXI stream of video image "packets".  A Wishbone
+[recorder](rtl/qoi_recorder.v) can be used to record these packets to memory.
+The [recorder](rtl/qoi_recorder.v) requires components from the
 [ZipCPU](https://github.com/ZipCPU)'s DMA at present.
 
-A separate [decoder](rtl/qoi_decoder.v) is also planned to decode
-and decompress images, but it remains in the early stages of its development.
+A separate [decoder](rtl/qoi_decoder.v) is also planned to decode and
+decompress images, but it remains in the early stages of its development.
 
 ## Back story
 
-The purpose of this implementation is simply to minimize the bandwidth
-required to store video images in memory.
+The purpose of this implementation is simply to minimize the bandwidth required
+to store video images in memory.
 
 Let me back up.  I have a SONAR project that can (currently) display some
-amazing things to the HDMI output--in simulation.  In hardware, the displays
-are all messed up.  Therefore, I need something that can capture the display
-output to memory, so that I can then come back later and debug what was
-actually going to the display.  The problem I have is that the memory bandwidth
-is already well used--I don't want to take up any more of it, or risk any
-more of the design failing due to memory latencies.  Therefore, the memory
-compression needs to be quick.
+amazing things to the HDMI output--in simulation.  In hardware, the displays are
+all messed up.  Therefore, I need something that can capture the display output
+to memory, so that I can then come back later and debug what was actually going
+to the display.  The problem I have is that the memory bandwidth is already well
+used--I don't want to take up any more of it, or risk any more of the design
+failing due to memory latencies.  Therefore, the memory compression needs to
+be quick.
 
 Many of these SONAR images consist of [plots or other
 charts](https://github.com/ZipCPU/vgasim/tree/dev/rtl/gfx) on a black
@@ -34,9 +34,9 @@ background.  QOI's run-length compression should make quick work of this black
 background.  Likewise, the images often contain only a small number of colors,
 such as the white lines.  Again, the image compression might note the white
 pixel initially, but then ever after the white pixel(s) will be compressed to
-a single byte of white, followed by a single byte of black, followed by a run
-of black.  Again, this should compress quite well, reducing the bandwidth to
-memory required by the algorithm.
+a single byte of white, followed by a single byte of black, followed by a run of
+black.  Again, this should compress quite well, reducing the bandwidth to memory
+required by the algorithm.
 
 ## Implementation notes
 
@@ -62,59 +62,51 @@ remain.
 
 ## Status
 
-This IP is currently a work-in-progress.  I think I can say the encoder is now
-hardware proven, since I have now used it to capture several black and white
-hardware images, but I'd really like to see a successful test with more
-color involved.  The decoder is known to not be ready yet.  Worse, the design
-doesn't (yet) have a regression suite--whether it be simulation or formal
-verification based.
-
-One step at a time.
+This IP is currently a work-in-progress.  The encoder is hardware proven.  The
+decoder passes a simulation test.
 
 The current (and planned) components of this repository include:
 
 - [qoi_compress](rtl/qoi_compress.v) compresses pixel data.  This
   critical component has now been formally verified.
+
+  Although QOI supports an alpha channel, this compression engine does not
+  (yet) support any alpha channels.
+
 - [qoi_encoder](rtl/qoi_encoder.v) wraps the compression algorithm, providing
   both a file header containing image width and height, as well as an
   image trailer.
 
-  This component has worked in hardware at one time.  Since that time, it
-  has gone through a formal verification process which has found several
-  bugs.  It has not been tested in hardware since.
 - [qoi_recorder](rtl/qoi_recorder.v) wraps the [QOI encoder](rtl/qoi_encoder.v)
   so that an entire image stream may be encoded and a fixed number of images
   may be copied to memory.  This recording capability depends upon both the
   [RXGears](https://github.com/ZipCPU/zipcpu/blob/master/rtl/zipdma/zipdma_rxgears.v) and the
   [S2MM](https://github.com/ZipCPU/zipcpu/blob/master/rtl/zipdma/zipdma_s2mm.v)
   components of the ZipDMA, both found in the
-  [ZipCPU's git repository](https://github.com/ZipCPU/zipcpu).  As with
-  the encoder, this component has worked in hardware (at one time) but the
-  verification infrastructure (which should be found here) remains
-  woefully inadequate (i.e. non-existent).
+  [ZipCPU's git repository](https://github.com/ZipCPU/zipcpu).
 
 - [qoi_decompress](rtl/qoi_decompress.v) is designed to decompress QOI encoded
-  pixel data.  At present, this component passes a lint check.  Yep.
-  That's it.  Although I have started work to formally verify this component,
-  it continues to have known bugs within it that still need to be
-  addressed--particularly with the LUMA compression encoding.
+  pixel data.  At present, this component passes an ad-hoc simulation check.
 
 - [qoi_decoder](rtl/qoi_decoder.v) is designed to decompress QOI frames (files).
   It removes the header and trailer, detects the width and height, and
-  produces a one-frame AXI video stream as an output.  That is, it will
-  produce one frame per incoming QOI image once completed.  This component is
-  about as developed as the [QOI decompressor](rtl/qoi_decompress.v), since
-  both only pass lint checks.  As such, neither are ready for prime time
-  ... yet.
+  produces a one-frame AXI video stream as an output.  This component is
+  also part of the same ad-hoc simulation check used by other components.
 
-- _qoi_framebuffer_ is not yet written.  Once written,
-  this component will repeatedly read QOI image files from memory, and
-  feed them to the decoder.  The result (should) be a proper video
-  stream once completed.  (Yeah, I know, I'll believe it when I see it
-  too.)  For now, this component is nothing more than vaporware.
+- [qoi_framebuffer]() is not yet written.  Once written, this component will
+  repeatedly read QOI image files from memory, and feed them to the decoder.
+  The result (should) be a proper video stream once completed.  For now, this
+  component is nothing more than vaporware.
+
+## Simulation
+
+A simulation model now exists that can compress a PNG file, decompress the
+compressed stream, and then compare the result to the original PNG file.  This
+model has now been successful over the course of many tests.  It still needs
+some minor upgrades to make this simulation testing automatic in order to
+support proper regression testing.
 
 ## License
 
-This IP is available under GPLv3.  Other licenses may be available for
-purchase.
+This IP is available under GPLv3.  Other licenses may be available for purchase.
 
