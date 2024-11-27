@@ -40,10 +40,7 @@ required by the algorithm.
 
 ## Implementation notes
 
-**Project Goal**: real-time compression and decompression.  I think I've
-figured out how to map the compression component to hardware.  The
-decompression algorithm isn't there yet.  (i.e., it has known bugs) Neither
-algorithm has been properly verified (yet).
+**Project Goal**: real-time compression and decompression.
 
 The trick in this implementation is getting the compression table, a block RAM
 memory, to the point where it can be accessed in one cycle.  This means that
@@ -57,8 +54,7 @@ Decoding is a bit more of a challenge, particularly since the compression
 table address may depend upon a previous pixel's value--even before we know
 the index of that previous pixel in the table.  Hence, a table lookup followed
 by an offset value would require calculating the pixel offset prior to the
-table lookup.  While I think I have this challenge solved, other issues
-remain.
+table lookup.  This challenge now appears to be solved at present.
 
 ## Status
 
