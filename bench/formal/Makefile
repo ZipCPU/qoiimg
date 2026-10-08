@@ -11,7 +11,7 @@
 ##
 ################################################################################
 ## }}}
-## Copyright (C) 2024, Gisselquist Technology, LLC
+## Copyright (C) 2024-2026, Gisselquist Technology, LLC
 ## {{{
 ## This program is free software (firmware): you can redistribute it and/or
 ## modify it under the terms of the GNU General Public License as published
@@ -72,3 +72,7 @@ qoi_decompress_prf/PASS: $(DDEPS)
 # qoi_decompress_cvr/PASS: $(DDEPS)
 #	sby -f qoi_decompress.sby cvr
 ## }}}
+
+.PHONY: report
+report:
+	+perl genreport.pl > report.html

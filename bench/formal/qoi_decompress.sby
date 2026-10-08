@@ -1,0 +1,26 @@
+[tasks]
+prf
+cvr
+
+[options]
+prf: mode prove
+depth 5
+depth 25
+## depth 25
+cvr: mode cover
+cvr: depth 40
+
+[engines]
+smtbmc
+
+[script]
+read -formal qoi_decompress.v
+--pycode-begin--
+cmd = "hierarchy -top qoi_decompress"
+output(cmd)
+--pycode-end--
+proc -norom
+prep -top qoi_decompress
+
+[files]
+../../rtl/qoi_decompress.v

@@ -1,6 +1,6 @@
 ////////////////////////////////////////////////////////////////////////////////
 //
-// Filename:	./rtl/qoi_encoder.v
+// Filename:	rtl/qoi_encoder.v
 // {{{
 // Project:	Quite OK image compression (QOI) Verilog implementation
 //
@@ -18,7 +18,7 @@
 //
 ////////////////////////////////////////////////////////////////////////////////
 // }}}
-// Copyright (C) 2024, Gisselquist Technology, LLC
+// Copyright (C) 2024-2026, Gisselquist Technology, LLC
 // {{{
 // This program is free software (firmware): you can redistribute it and/or
 // modify it under the terms of the GNU General Public License as published
@@ -78,6 +78,7 @@ module	qoi_encoder #(
 	localparam	[1:0]	S_NO_SYNC = 2'b00,
 				S_START   = 2'b01,
 				S_SYNCD   = 2'b10;
+	localparam	FILLW = $clog2(DW+32)-2;
 
 	wire		s_hlast;
 	reg	[1:0]	h_state;
@@ -98,6 +99,11 @@ module	qoi_encoder #(
 	reg	[31:0]	frm_data;
 	reg	[1:0]	frm_bytes;
 	wire		frm_ready;
+
+	reg	[DW+32-1:0]	sreg, new_data;
+	reg	[FILLW-1:0]	sr_fill, new_fill;
+	reg			sr_last, flush;
+	wire			fl_last;
 
 
 	// }}}
@@ -381,9 +387,8 @@ module	qoi_encoder #(
 		end
 	endcase
 
-	// Verilator lint_off WIDTH
-	assign	frm_ready = ((!o_qvalid || i_qready)&&sr_fill <= DB)||(sr_fill < DB && !sr_last);
-	// Verilator lint_on  WIDTH
+	assign	frm_ready = ((!o_qvalid || i_qready)&& sr_fill <= DB[FILLW-1:0])
+				|| (sr_fill < DB[FILLW-1:0] && !sr_last);
 	// }}}
 	////////////////////////////////////////////////////////////////////////
 	//
@@ -393,37 +398,31 @@ module	qoi_encoder #(
 	//
 	//
 
-	reg	[DW+32-1:0]		sreg, new_data;
-	reg	[$clog2(DW+32)-3:0]	sr_fill, new_fill;
-	reg				sr_last, fl_last, flush;
+	assign	fl_last = (frm_valid && frm_ready && !sr_last
+			&& (new_fill <= DB[FILLW-1:0])) ? frm_last : sr_last;
+
+	always @(*)
+	if (frm_valid && frm_ready)
+	begin
+		if (frm_bytes == 0)
+			new_fill = sr_fill + { {(FILLW-3){1'b0}}, 3'd4 };
+		else
+			new_fill = sr_fill + { {(FILLW-2){1'b0}}, frm_bytes };
+	end else
+		new_fill = sr_fill;
 
 	always @(*)
 	begin
-		new_fill = sr_fill;
-		// Verilator lint_off WIDTH
-		if (frm_valid && frm_ready)
-		begin
-			if (frm_bytes == 0)
-				new_fill = new_fill + 4;
-			else
-				new_fill = new_fill + frm_bytes;
-		end
-
-		fl_last = sr_last;
-		if (frm_valid && frm_ready && !sr_last
-					&& (new_fill <= DB))
-			fl_last = frm_last;
-
 		flush = sr_last || frm_last;
-		if (sr_fill >= DW/8)
+		if (sr_fill >= DB[FILLW-1:0])
 			flush = 1'b1;
-		if (frm_valid && frm_ready && (new_fill >= DB))
+		if (frm_valid && frm_ready && (new_fill >= DB[FILLW-1:0]))
 			flush = 1'b1;
-
-		new_data = sreg| ({{(DW){1'b0}}, frm_data}
-							<< (DW - (sr_fill*8)));
-		// Verilator lint_on  WIDTH
 	end
+
+	always @(*)
+		new_data = sreg | ({{(DW){1'b0}}, frm_data}
+							<< (DW - (sr_fill*8)));
 
 	initial	o_qvalid = 0;
 	initial	sr_fill = 0;
@@ -435,9 +434,7 @@ module	qoi_encoder #(
 	end else if ((!o_qvalid || i_qready) && flush)
 	begin
 		o_qvalid <= 1'b1;
-		// Verilator lint_off WIDTH
-		sr_fill <= new_fill - DB;
-		// Verilator lint_on  WIDTH
+		sr_fill <= new_fill - DB[FILLW-1:0];
 		if (sr_last)
 			sr_fill <= (frm_valid) ? new_fill : 0;
 		else if (fl_last)
@@ -507,6 +504,16 @@ module	qoi_encoder #(
 	(* anyconst *) reg	[LGFRAME-1:0]	f_width, f_height;
 	reg	[LGFRAME-1:0]	fs_xpos, fs_ypos;
 	reg			f_known_height, fs_hlast, fs_vlast, fs_sof;
+
+	reg	[31:0]		enc_count, frm_count, fq_count;
+	(* anyconst *)	reg	[31:0]	fc_index;
+	(* anyconst *)	reg	[7:0]	fc_byte;
+
+	reg	[31:0]		fenc_index, fsr_count, enc_wide, frm_wide;
+	reg	[7:0]		fenc_byte;
+	reg	[DW-1:0]	fq_wide;
+	reg	[DW+32-1:0]	fsr_empty, fsr_wide;
+
 
 	initial	f_past_valid = 1'b0;
 	always @(posedge i_clk)
@@ -652,7 +659,6 @@ module	qoi_encoder #(
 	//
 	// Encoder stage properties
 	// {{{
-	reg	[31:0]	enc_count;
 
 	initial	enc_count = 0;
 	always @(posedge i_clk)
@@ -677,7 +683,6 @@ module	qoi_encoder #(
 	//
 	// Framing stage properties
 	// {{{
-	reg	[31:0]	frm_count;
 
 	initial	frm_count = 0;
 	always @(posedge i_clk)
@@ -778,7 +783,6 @@ module	qoi_encoder #(
 	//
 	// (Compressed) Stream properties
 	// {{{
-	reg	[31:0]	fq_count;
 
 	always @(posedge i_clk)
 	if (!f_past_valid || $past(i_reset))
@@ -814,15 +818,6 @@ module	qoi_encoder #(
 	//
 	// Contract byte
 	// {{{
-
-	(* anyconst *)	reg	[31:0]	fc_index;
-	(* anyconst *)	reg	[7:0]	fc_byte;
-
-	reg	[31:0]	fenc_index, fsr_count;
-	reg	[7:0]	fenc_byte;
-	reg	[31:0]	enc_wide, frm_wide;
-	reg	[DW-1:0]	fq_wide;
-	reg	[DW+32-1:0]	fsr_empty, fsr_wide;
 
 	always @(*)
 		assume(fc_index >= 12+2);

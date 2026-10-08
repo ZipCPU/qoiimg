@@ -1,6 +1,6 @@
 ////////////////////////////////////////////////////////////////////////////////
 //
-// Filename:	./rtl/qoi_skid.v
+// Filename:	rtl/qoi_skid.v
 // {{{
 // Project:	Quite OK image compression (QOI) Verilog implementation
 //
@@ -57,7 +57,7 @@
 //
 ////////////////////////////////////////////////////////////////////////////////
 // }}}
-// Copyright (C) 2018-2024, Gisselquist Technology, LLC
+// Copyright (C) 2018-2026, Gisselquist Technology, LLC
 // {{{
 // This program is free software (firmware): you can redistribute it and/or
 // modify it under the terms of the GNU General Public License as published

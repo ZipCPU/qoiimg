@@ -1,0 +1,322 @@
+#!/usr/bin/perl
+################################################################################
+##
+## Filename:	bench/formal/genreport.pl
+## {{{
+## Project:	Quite OK image compression (QOI) Verilog implementation
+##
+## Purpose:	Generates an HTML report documenting the success (or failure)
+##		of the various formal proofs contained in this repository.
+##
+## Creator:	Dan Gisselquist, Ph.D.
+##		Gisselquist Technology, LLC
+##
+################################################################################
+## }}}
+## Copyright (C) 2023-2026, Gisselquist Technology, LLC
+## {{{
+## This program is free software (firmware): you can redistribute it and/or
+## modify it under the terms of the GNU General Public License as published
+## by the Free Software Foundation, either version 3 of the License, or (at
+## your option) any later version.
+##
+## This program is distributed in the hope that it will be useful, but WITHOUT
+## ANY WARRANTY; without even the implied warranty of MERCHANTIBILITY or
+## FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+## for more details.
+##
+## You should have received a copy of the GNU General Public License along
+## with this program.  (It's in the $(ROOT)/doc directory.  Run make with no
+## target there if the PDF file isn't present.)  If not, see
+## <http://www.gnu.org/licenses/> for a copy.
+## }}}
+## License:	GPL, v3, as defined and found on www.gnu.org,
+## {{{
+##		http://www.gnu.org/licenses/gpl.html
+##
+################################################################################
+##
+## }}}
+
+## Variable declarations
+## {{{
+$dir = ".";
+@proofs = (
+	"qoi_compress",
+	"qoi_decompress",
+	"qoi_encoder"
+	);
+
+%desc = (
+	"qoi_compress"	=> "QOI Compression",
+	"qoi_decompress"=> "QOI Decompression",
+	"qoi_encoder"	=> "QOI Encoder (Stream generation)"
+	);
+## }}}
+
+## getstatus subroutine
+## {{{
+# This subroutine runs make, to see if a proof is up to date, or otherwise
+# checks the logfile to see what the status was the last time the proof was
+# run.
+sub getstatus($) {
+	my $based = shift;
+	my $log = "$based/logfile.txt";
+
+	my $bmc = 0;
+	my $ind = 0;
+	my $cvr = 0;
+	my $ncvr = 0;
+
+	my $PASS = 0;
+	my $FAIL = 0;
+	my $UNK = 0;
+	my $ERR = 0;
+	my $terminated = 0;
+	my $current = 1;
+	my $basepass = 0;
+
+	# print "<TR><TD>Checking make $based/PASS</TD></TR>\n";
+
+	if (open(MAK, "make -n $based/PASS |")) {
+		while($line = <MAK>) {
+			if ($line =~ /sby/) {
+				$current = 0;
+			}
+		} close(MAK);
+	}
+
+	# print "<TR><TD>Opening log, $log</TD></TR>\n";
+
+	open (LOG, "< $log") or return "No log";
+	while($line = <LOG>) {
+		# print "<TR><TD>LINE=$line</TD></TR>\n";
+		if ($line =~ /DONE.*FAIL/) {
+			$FAIL = 1;
+			# print "<TR><TD>FAIL match</TD></TR>\n";
+		} if ($line =~ /basecase.*Status: passed/) {
+			$basepass = 1;
+			# print "<TR><TD>PASS match</TD></TR>\n";
+		} if ($line =~ /DONE.*PASS/) {
+			$PASS = 1;
+			# print "<TR><TD>PASS match</TD></TR>\n";
+		} if ($line =~ /DONE.*UNKNOWN/) {
+			$UNK = 1;
+			# print "<TR><TD>UNKNOWN match</TD></TR>\n";
+		} if ($line =~ /DONE.*ERROR/) {
+			$ERR = 1;
+			# print "<TR><TD>ERROR match</TD></TR>\n";
+		} if ($line =~ /terminating process/) {
+			if ($basepass != 0 && $line =~ /basecase: terminating process/) {
+			} else {
+				$terminated = 1;
+			}
+		} if ($line =~ /Checking cover/) {
+			$cvr = 1;
+		} if ($line =~ /engine_\d.induction/) {
+			$ind = 1;
+			# print "<TR><TD>induction match</TD></TR>\n";
+		} if ($line =~ /engine_\d.basecase.*Checking assertions in step\s+(\d+)/) {
+			if ($1 > $bmc) {
+				$bmc = $1;
+				# print "<TR><TD>basecase $bmc match</TD></TR>\n";
+			}
+		} if ($line =~ /engine_\d:.*Reached cover statement/) {
+			$ncvr = $ncvr+1;
+		}
+	}
+	close(LOG);
+
+	if ($PASS) {
+		if ($current == 0) {
+			"Out of date";
+		} elsif ($cvr) {
+			"Cover $ncvr";
+		} else {
+			"PASS";
+		}
+	} elsif ($FAIL) {
+		"FAIL";
+	} elsif ($ERR) {
+		"ERROR";
+	} elsif (($ind == 0 || $UNK != 0) && $bmc > 0) {
+		"BMC $bmc";
+	} elsif ($terminated) {
+		"Terminated";
+	} else {
+		"Unknown";
+	}
+}
+## }}}
+
+## getelapsed subroutine
+## {{{
+# This subroutine runs make, to see if a proof is up to date, or otherwise
+# checks the logfile to see what the status was the last time the proof was
+# run.
+sub getelapsed($) {
+	my $based = shift;
+	my $log = "$based/logfile.txt";
+	my $elapsed = "";
+	my $tmp, $hrs, $rest, $elhrs=0;
+
+	open (LOG, "< $log") or return "No log";
+	while($line = <LOG>) {
+		# print "<TR><TD>LINE=$line</TD></TR>\n";
+		if ($line =~ /\s+(\d+):(\d\d:\d\d)\s+waiti/) {
+			$hrs = $1; $rest = $2;
+			$tmp = $hrs . ":" . $rest;
+			if ($hrs > $elhrs or ($hrs == $elhrs and $tmp gt $elapsed)) {
+				$elapsed = $tmp;
+				$elhrs = $hrs;
+			}
+		} elsif ($line =~ /\s+(\d+):(\d\d:\d\d)\s+Check/) {
+			$hrs = $1; $rest = $2;
+			$tmp = $hrs . ":" . $rest;
+			if ($hrs > $elhrs or ($hrs == $elhrs and $tmp gt $elapsed)) {
+				$elapsed = $tmp;
+				$elhrs = $hrs;
+			}
+		} elsif ($line =~ /\s+(\d+):(\d\d:\d\d)\s+Try/) {
+			$hrs = $1; $rest = $2;
+			$tmp = $hrs . ":" . $rest;
+			if ($hrs > $elhrs or ($hrs == $elhrs and $tmp gt $elapsed)) {
+				$elapsed = $tmp;
+				$elhrs = $hrs;
+			}
+		}
+	}
+	close(LOG);
+
+	$elapsed;
+}
+## }}}
+
+## Start the HTML output
+## {{{
+## Grab a timestamp
+$now = time;
+($sc,$mn,$nhr,$ndy,$nmo,$nyr,$nwday,$nyday,$nisdst) = localtime($now);
+$nyr = $nyr+1900; $nmo = $nmo+1;
+$tstamp = sprintf("%04d%02d%02d",$nyr,$nmo,$ndy);
+
+print <<"EOM";
+<HTML><HEAD><TITLE>Formal Verification Report</TITLE></HEAD>
+<BODY>
+<H1 align=center>QOI Image Compression Formal Verification Report</H1>
+<H2 align=center>$tstamp</H2>
+<P align=center><TABLE border>
+<TR><TH>Status</TH><TH>Elapsed</TH><TH>Component</TD><TH>Proof</TH><TH>Component description</TH></TR>
+EOM
+## }}}
+
+## Look up all directory entries
+## {{{
+# We'll use this result to look for subdirectories that might contain
+# log files.
+opendir(DIR, $dir) or die "Cannot open directory for reading";
+my @dirent = readdir(DIR);
+closedir(DIR);
+
+# print "@dirent";
+## }}}
+
+# Lookup each components proof
+foreach $prf (sort @proofs) {
+	my $ndirs=0;
+	foreach $dent (@dirent) {
+		next if (! -d $dent);
+		next if ($dent =~ /^\./);
+		next if ($dent !~ /^$prf(_\S+)/);
+			$subprf = $1;
+
+		$ndirs = $ndirs+1;
+	}
+
+	my $firstd = 1;
+	my $notfound = ($ndirs >= 1) ? 0:1;
+
+	# Find each subproof of the component
+	foreach $dent (@dirent) {
+		## Filter out the wrong directories
+		## {{{
+		# print("<TR><TD>DIR $dent</TD></TR>\n");
+		# Only look at subdirectories
+		next if (! -d $dent);
+		next if ($dent =~ /^\./);
+		next if ($dent !~ /^$prf(_\S+)/);
+			$subprf = $1;
+		# print("<TR><TD>$dent matches $prf</TD></TR>\n");
+		my $st;
+		my $el;
+		## }}}
+
+		## Get the resulting status
+		$st = getstatus($dent);
+		$el = getelapsed($dent);
+		# print("<TR><TD>STATUS = $st</TD></TR>\n");
+
+		my $link = $prf . $subprf . "/logfile.txt";
+		if (-e $link) {
+			$link = "<A HREF=\"$link\">";
+		} else {
+			## print "Not found: $link\n";
+			$link = "";
+		}
+
+		## Fill out one entry of our table
+		## {{{
+		my $tail;
+		if ($firstd) {
+			print "<TR></TR>\n";
+			$tail = "</TD><TD>$el</TD><TD rowspan=$ndirs>$prf</TD><TD>$subprf</TD><TD rowspan=$ndirs>$desc{$prf}</TD></TR>\n";
+			$firstd = 0;
+		} else {
+			$tail = "</TD><TD>$el</TD><TD>$subprf</TD></TR>\n";
+		} if ($link ne "") {
+			$tail = "</A>" . $tail;
+		}
+		if ($st =~ /PASS/) {
+			print "<TR><TD bgcolor=#caeec8>$link" ."Pass$tail";
+		} elsif ($st =~ /Cover\s+(\d+)/) {
+			my $cvr = $1;
+			if ($cvr < 1) {
+			print "<TR><TD bgcolor=#ffffca>$link" ."$1 Cover points$tail";
+			} else {
+			print "<TR><TD bgcolor=#caeec8>$link" ."$1 Cover points$tail";
+			}
+		} elsif ($st =~ /FAIL/) {
+			print "<TR><TD bgcolor=#ffa4a4>$link" ."FAIL$tail";
+		} elsif ($st =~ /Terminated/) {
+			print "<TR><TD bgcolor=#ffa4a4>$link" ."Terminated$tail";
+		} elsif ($st =~ /ERROR/) {
+			print "<TR><TD bgcolor=#ffa4a4>$link" ."ERROR$tail";
+		} elsif ($st =~ /Out of date/) {
+			print "<TR><TD bgcolor=#ffffca>$link" ."Out of date$tail";
+		} elsif ($st =~ /BMC\s+(\d+)/) {
+			my $bmc = $1;
+			if ($bmc < 2) {
+			print "<TR><TD bgcolor=#ffa4a4>$link" ."$bmc steps of BMC$tail";
+			} else {
+			print "<TR><TD bgcolor=#ffffca>$link" ."$bmc steps of BMC$tail";
+			}
+		} elsif ($st =~ /No log/) {
+			print "<TR><TD bgcolor=#e5e5e5>$link" ."No log file found$tail";
+		} else {
+			print "<TR><TD bgcolor=#e5e5e5>$link" ."Unknown$tail";
+		}
+		## }}}
+	} if ($myfirstd != 0) {
+		print "<TR><TD bgcolor=#e5e5e5 colspan=2>Not found</TD><TD>$prf</TD><TD>&nbsp;</TD><TD rowspan=$ndirs>$desc{$prf}</TD></TR>\n";
+	} elsif ($notfound) {
+		print "<TR><TD bgcolor=#e5e5e5 colspan=2>Not found</TD><TD>$prf</TD><TD>&nbsp;</TD><TD rowspan=$ndirs>$desc{$prf}</TD></TR>\n";
+	}
+}
+
+## Finish the HTML log file
+## {{{
+print <<"EOM";
+</TABLE></P>
+</BODY></HTML>
+EOM
+## }}}
