@@ -469,14 +469,12 @@ module	qoi_encoder #(
 	always @(posedge i_clk)
 	if ((!o_qvalid || i_qready)&&(!OPT_LOWPOWER || flush))
 	begin
-		// Verilator lint_off WIDTH
 		if (sr_last)
 			o_qbytes <= sr_fill[LGDB-1:0];
-		else if (new_fill >= DB)
+		else if (new_fill >= DB[FILLW-1:0])
 			o_qbytes <= 0;
 		else
-			o_qbytes <= new_fill;
-		// Verilator lint_on  WIDTH
+			o_qbytes <= new_fill[LGDB-1:0];
 	end
 
 	always @(posedge i_clk)
